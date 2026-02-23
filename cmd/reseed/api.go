@@ -12,13 +12,15 @@ import (
 	"time"
 	"unicode/utf16"
 
-	socketio "github.com/googollee/go-socket.io"
 	"github.com/sagan/ptool/config"
 	"github.com/sagan/ptool/constants"
 	"github.com/sagan/ptool/site"
 	"github.com/sagan/ptool/util"
 	"github.com/shibumi/go-pathspec"
 	log "github.com/sirupsen/logrus"
+	"github.com/zishang520/socket.io/clients/engine/v3/transports"
+	"github.com/zishang520/socket.io/clients/socket/v3"
+	"github.com/zishang520/socket.io/v3/pkg/types"
 )
 
 // Reseed API backend: https://github.com/tongyifan/Reseed-backend , it's a sock.io server,
@@ -127,36 +129,85 @@ func GetReseedTorrents(username string, password string, sites []*config.SiteCon
 		return
 	}
 	reseed2LocalMap := GenerateReseed2LocalSiteMap(reseedSites, sites)
-	client, err := socketio.NewClient(RESEED_API, nil)
-	if err != nil {
-		err = fmt.Errorf("failed to create sock.io client: %w", err)
-		return
-	}
-	// must provide a "reply" event listener
-	client.OnEvent("reply", func(s socketio.Conn, msg string) {
-		// log.Println("Receive Message /reply: ", "reply", msg)
-	})
+
+	// Create socket.io client options with headers
+	opts := socket.DefaultOptions()
 	header := http.Header{}
 	if token != "" {
 		header.Set("Authorization", "Bearar "+token)
 	}
-	if err = client.Connect(header); err != nil {
-		err = fmt.Errorf("failed to connect to reseed backend: %w", err)
-		return
-	}
+	opts.SetExtraHeaders(header)
+	opts.SetTransports(types.NewSet(transports.Polling, transports.WebSocket))
+	opts.SetAutoConnect(false)
+
+	manager := socket.NewManager(RESEED_API, opts)
+	io := manager.Socket("/", nil)
+
+	// must provide a "reply" event listener
+	io.On("reply", func(args ...any) {
+		// log.Println("Receive Message /reply: ", "reply", msg)
+	})
+
 	timeoutPeriod := time.Second * time.Duration(timeout)
 	timeoutTicker := time.NewTicker(timeoutPeriod)
 	chResult := make(chan *ReseedResult, 1)
 	chErr := make(chan error, 1)
-	client.OnEvent("reseed result", func(conn socketio.Conn, message *ReseedResult) {
-		log.Tracef("reseed result: %v", message)
-		chResult <- message
+	chConnected := make(chan bool, 1)
+
+	io.On("connect", func(args ...any) {
+		log.Tracef("socket connected")
+		chConnected <- true
 	})
-	client.OnError(func(c socketio.Conn, err error) {
-		log.Tracef("Server error: %v", err)
-		chErr <- err
+
+	io.On("reseed result", func(args ...any) {
+		if len(args) > 0 {
+			// Parse the result from args
+			var message ReseedResult
+			if data, err := json.Marshal(args[0]); err == nil {
+				if err := json.Unmarshal(data, &message); err == nil {
+					log.Tracef("reseed result: %v", message)
+					chResult <- &message
+				}
+			}
+		}
 	})
-	go client.Emit("file", file)
+
+	io.On("connect_error", func(args ...any) {
+		if len(args) > 0 {
+			log.Tracef("connect error: %v", args[0])
+			if err, ok := args[0].(error); ok {
+				chErr <- err
+			} else {
+				chErr <- fmt.Errorf("%v", args[0])
+			}
+		}
+	})
+
+	// Connect to server
+	io.Connect()
+
+	// Wait for connection or error
+	select {
+	case connected := <-chConnected:
+		if !connected {
+			err = fmt.Errorf("failed to connect to reseed backend")
+			return
+		}
+	case e := <-chErr:
+		err = fmt.Errorf("failed to connect to reseed backend: %w", e)
+		return
+	case <-time.After(timeoutPeriod):
+		err = fmt.Errorf("connection timeout")
+		return
+	}
+
+	// Send file event
+	go func() {
+		if err := io.Emit("file", file); err != nil {
+			log.Tracef("emit error: %v", err)
+		}
+	}()
+
 	cntResult := 0
 loop:
 	for {
@@ -179,7 +230,7 @@ loop:
 			break loop
 		}
 	}
-	client.Close()
+	io.Close()
 	timeoutTicker.Stop()
 	if cntResult == 0 {
 		log.Debugf("server did not return any response")
