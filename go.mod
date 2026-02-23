@@ -1,6 +1,9 @@
 module github.com/sagan/ptool
 
-go 1.24.1
+go 1.23.0
+
+// Change Client.Connect signature to func (c *Client) Connect(requestHeader http.Header)
+replace github.com/googollee/go-socket.io => ./go-socket.io
 
 // workaround for some problem
 replace github.com/hekmon/transmissionrpc/v2 => ./transmissionrpc
@@ -18,6 +21,7 @@ require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/gofrs/flock v0.12.1
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
+	github.com/googollee/go-socket.io v1.8.0-rc.1.0.20230904084053-b044011d047b
 	github.com/hekmon/transmissionrpc/v2 v2.0.1
 	github.com/influxdata/go-prompt v0.2.8
 	github.com/jpillora/go-tld v1.2.1
@@ -31,11 +35,8 @@ require (
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.19.0
 	github.com/stromland/cobra-prompt v0.5.0
-	github.com/zishang520/socket.io/clients/engine/v3 v3.0.0-rc.12
-	github.com/zishang520/socket.io/clients/socket/v3 v3.0.0-rc.12
-	github.com/zishang520/socket.io/v3 v3.0.0-rc.12
 	golang.org/x/exp v0.0.0-20250218142911-aa4b98e5adaa
-	golang.org/x/net v0.50.0
+	golang.org/x/net v0.35.0
 	gorm.io/gorm v1.25.12
 )
 
@@ -45,11 +46,11 @@ require (
 	github.com/Masterminds/semver/v3 v3.3.1 // indirect
 	github.com/anacrolix/generics v0.0.3-0.20240902042256-7fb2702ef0ca // indirect
 	github.com/bradfitz/iter v0.0.0-20191230175014-e8f45d346db8 // indirect
-	github.com/dunglas/httpsfv v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fatih/color v1.18.0 // indirect
+	github.com/gofrs/uuid v4.4.0+incompatible // indirect
+	github.com/gomodule/redigo v1.9.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gookit/color v1.6.0 // indirect
 	github.com/goph/emperror v0.17.2 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
@@ -61,25 +62,14 @@ require (
 	github.com/multiformats/go-multihash v0.2.3 // indirect
 	github.com/multiformats/go-varint v0.0.7 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect
-	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.59.0 // indirect
-	github.com/quic-go/webtransport-go v0.10.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
-	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
-	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
-	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
-	github.com/zishang520/socket.io/parsers/engine/v3 v3.0.0-rc.12 // indirect
-	github.com/zishang520/socket.io/parsers/socket/v3 v3.0.0-rc.12 // indirect
-	github.com/zishang520/socket.io/servers/engine/v3 v3.0.0-rc.12 // indirect
-	github.com/zishang520/socket.io/servers/socket/v3 v3.0.0-rc.12 // indirect
 	lukechampine.com/blake3 v1.4.0 // indirect
 	modernc.org/libc v1.61.13 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.8.2 // indirect
 	modernc.org/sqlite v1.35.0 // indirect
-	resty.dev/v3 v3.0.0-beta.6 // indirect
 )
 
 require (
@@ -88,7 +78,7 @@ require (
 	github.com/Noooste/websocket v1.0.3 // indirect
 	github.com/anacrolix/missinggo v1.3.0 // indirect
 	github.com/anacrolix/missinggo/v2 v2.8.0 // indirect
-	github.com/andybalholm/brotli v1.2.0 // indirect
+	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/cloudflare/circl v1.6.0 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
@@ -100,7 +90,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
-	github.com/klauspost/compress v1.18.4 // indirect
+	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/magiconair/properties v1.8.9 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-tty v0.0.7 // indirect
@@ -115,10 +105,10 @@ require (
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.48.0 // indirect
-	golang.org/x/sys v0.41.0
-	golang.org/x/term v0.40.0
-	golang.org/x/text v0.34.0 // indirect
+	golang.org/x/crypto v0.35.0 // indirect
+	golang.org/x/sys v0.30.0
+	golang.org/x/term v0.29.0
+	golang.org/x/text v0.22.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1
 )
