@@ -48,7 +48,7 @@ ptool verifytorrent <torrentFileNameOrIdOrUrl>...
 | `--save-path <path>` | 种子内容保存路径（可校验多个种子） |
 | `--content-path <path>` | 单个种子的内容路径 |
 | `--use-comment-meta` | 使用种子 comment 字段的 save_path |
-| `--rclone-lsjson-file <file>` | rclone lsjson 输出文件 |
+| `--rclone-lsjson-file <file>` | [rclone][] 的 `rclone lsjson --recursive <path>` 命令输出 |
 | `--rclone-save-path <path>` | rclone 远程路径 |
 
 其他参数:
@@ -71,7 +71,7 @@ ptool verifytorrent file.torrent --save-path D:\Downloads --check
 # 校验单个种子
 ptool verifytorrent MyTorrent.torrent --content-path D:\Downloads\MyTorrent --check
 
-# 配合 rclone 校验云存储
+# 配合 [rclone][] 校验云存储
 ptool verifytorrent *.torrent --rclone-save-path remote:Downloads --check
 ```
 
@@ -188,6 +188,10 @@ ptool findalone local D:\Downloads --move-alone-to D:\AloneFiles
 
 拆包下载（用于 VPS 等硬盘空间有限的场景）:
 
+该命令的设计目的不是用于刷流。而是用于使用 VPS 等硬盘空间有限的云服务器(分多次)下载体积非常大的单个种子，然后配合 [rclone][] 将下载的文件直接上传到云存储。
+
+参考 [rclone lsjson][] 命令的文档。
+
 ```bash
 ptool partialdownload <client> <infoHash> [flags]
 ```
@@ -297,3 +301,6 @@ ptool delete local --tag _transferred --preserve
 - 源客户端和目标客户端需要在同一机器
 - 不同 Docker 容器需要使用 `--map-save-path` 指定路径映射
 - Transmission 源客户端支持有限
+
+[rclone]: https://github.com/rclone/rclone
+[rclone lsjson]: https://rclone.org/commands/rclone_lsjson/

@@ -97,5 +97,11 @@ ptool <command> -h
 [Private trackers]: https://wiki.installgentoo.com/wiki/Private_trackers
 [BitTorrent]: https://en.wikipedia.org/wiki/BitTorrent
 [CookieCloud]: https://github.com/easychen/CookieCloud
-[松鼠党]: https://www.reddit.com/r/DataHoarder/
+[IYUU]: https://github.com/ledccn/iyuuplus-dev
+[IYUU 接口]: https://doc.iyuu.cn/
+[IYUU 网站]: https://iyuu.cn/
+[Reseed]: https://github.com/tongyifan/Reseed-backend
+[Reseed 官网]: https://reseed.tongyifan.me/
 [rclone]: https://github.com/rclone/rclone
+[rclone lsjson]: https://rclone.org/commands/rclone_lsjson/
+[松鼠党]: https://www.reddit.com/r/DataHoarder/

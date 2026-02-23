@@ -1,15 +1,17 @@
 # 辅种功能
 
 ptool 支持三种辅种方式:
-1. **IYUU 接口**: 使用 IYUU 服务器自动辅种
-2. **Reseed 接口**: 使用 Reseed 服务扫描本地文件辅种
+1. **[IYUU][] 接口**: 使用 [IYUU][] 服务器自动辅种
+2. **[Reseed][] 接口**: 使用 [Reseed][] 服务扫描本地文件辅种
 3. **手动辅种**: 使用 xseedadd 命令手动添加辅种
 
 ## IYUU 自动辅种
 
+iyuu 命令通过 [IYUU 接口][] 提供自动辅种(cross seed)功能。本功能直接访问 IYUU 的服务器，本机上不需要安装 / 运行 IYUU 客户端。
+
 ### 配置 IYUU Token
 
-1. 在 [IYUU 网站](https://iyuu.cn/) 微信扫码获取 Token
+1. 在 [IYUU 网站][] 微信扫码申请 IYUU 令牌（token）
 2. 在 ptool.toml 中配置:
 
 ```toml
@@ -67,7 +69,11 @@ ptool iyuu xseed local vps
 
 ## Reseed 自动辅种
 
+reseed 命令使用 [Reseed][] 提供的接口自动辅种。
+
 ### 配置
+
+首先在 [Reseed 官网][] 注册（需要使用指定 PT 站点验证），然后在 ptool.toml 中配置:
 
 ```toml
 reseedUsername = "username"
@@ -144,3 +150,9 @@ ptool xseedadd local mteam.488424
 ## 客户端里已有种子查找可辅种资源
 
 使用方式 1 或 2 的流程，可以扫描客户端里已有种子的内容文件夹，查找可以辅种的站点种子。
+
+[IYUU]: https://github.com/ledccn/iyuuplus-dev
+[IYUU 接口]: https://doc.iyuu.cn/
+[IYUU 网站]: https://iyuu.cn/
+[Reseed]: https://github.com/tongyifan/Reseed-backend
+[Reseed 官网]: https://reseed.tongyifan.me/
