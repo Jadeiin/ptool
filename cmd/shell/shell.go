@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/c-bata/go-prompt"
 	"github.com/google/shlex"
+	"github.com/influxdata/go-prompt"
 	"github.com/spf13/cobra"
 	cobraprompt "github.com/stromland/cobra-prompt"
 

@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/c-bata/go-prompt"
+	"github.com/influxdata/go-prompt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
