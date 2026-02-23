@@ -41,7 +41,7 @@
 
 ### 下载
 
-- [开发版本](https://ci.appveyor.com/project/sagan/ptool/build/artifacts) (根据 master 分支最新代码自动构建)
+- [开发版本](https://ci.appveyor.com/project/sagan/ptool/build/artifacts) (根据默认分支最新代码自动构建)
 - [稳定版本](https://github.com/sagan/ptool/releases)
 
 ### 创建配置
