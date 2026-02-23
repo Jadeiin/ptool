@@ -2,9 +2,6 @@ module github.com/sagan/ptool
 
 go 1.23.0
 
-// fix broken build on Windows due to incorrent copyFileRange function.
-replace github.com/KarpelesLab/reflink => ./reflink
-
 // Change Client.Connect signature to func (c *Client) Connect(requestHeader http.Header)
 replace github.com/googollee/go-socket.io => ./go-socket.io
 
@@ -18,7 +15,7 @@ replace github.com/c-bata/go-prompt => ./go-prompt
 replace github.com/stromland/cobra-prompt => ./cobra-prompt
 
 require (
-	github.com/KarpelesLab/reflink v1.0.1
+	github.com/KarpelesLab/reflink v1.0.2
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/Noooste/azuretls-client v1.6.4
 	github.com/PuerkitoBio/goquery v1.10.2
