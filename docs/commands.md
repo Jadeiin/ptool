@@ -83,8 +83,8 @@ ptool <command> [args...] [flags]
 | [stats](brush.md) | 刷流流量统计 |
 | [findalone](torrent.md) | 查找未做种文件 |
 | [partialdownload](torrent.md) | 拆包下载 |
-| [movesavepath](client.md) | 修改保存路径 |
-| [transfertorrent](client.md) | 转移种子客户端 |
+| [movesavepath](torrent.md) | 修改保存路径 |
+| [transfertorrent](torrent.md) | 转移种子客户端 |
 | [hardlink](torrent.md) | 硬链接工具 |
 | [cookiecloud](cookiecloud.md) | CookieCloud 同步 |
 | [shell](shell.md) | 交互式终端 |

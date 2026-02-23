@@ -41,7 +41,7 @@ ptool parsetorrent *.torrent
 ptool verifytorrent <torrentFileNameOrIdOrUrl>...
 ```
 
-必选参数（4选1）:
+必选参数（5选1）:
 
 | 参数 | 说明 |
 |------|------|
@@ -107,7 +107,7 @@ ptool maketorrent ./MyVideos --private --tracker "https://tracker.example.com/an
 | `--public` | 添加公共 tracker |
 | `--private` | 标记为私有种子 |
 | `--tracker string` | 手动指定 tracker 地址 |
-| `--piece-length int` | 指定 piece 大小（KB） |
+| `--piece-length string` | 指定 piece 大小（支持带单位的大小字符串，如 `16MiB`） |
 
 说明:
 - 内容文件夹中的临时/隐藏文件（`.*`, `*.tmp`, `Thumbs.db` 等）默认会被忽略
