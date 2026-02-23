@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/c-bata/go-prompt"
 	"github.com/gofrs/flock"
+	"github.com/influxdata/go-prompt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"

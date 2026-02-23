@@ -2,34 +2,28 @@ module github.com/sagan/ptool
 
 go 1.23.0
 
-// fix broken build on Windows due to incorrent copyFileRange function.
-replace github.com/KarpelesLab/reflink => ./reflink
-
 // Change Client.Connect signature to func (c *Client) Connect(requestHeader http.Header)
 replace github.com/googollee/go-socket.io => ./go-socket.io
 
 // workaround for some problem
 replace github.com/hekmon/transmissionrpc/v2 => ./transmissionrpc
 
-// workaround for https://github.com/c-bata/go-prompt/issues/228, with elyscape's fix applied
-replace github.com/c-bata/go-prompt => ./go-prompt
-
 // workaround for some problem
 replace github.com/stromland/cobra-prompt => ./cobra-prompt
 
 require (
-	github.com/KarpelesLab/reflink v1.0.1
+	github.com/KarpelesLab/reflink v1.0.2
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/Noooste/azuretls-client v1.6.4
 	github.com/PuerkitoBio/goquery v1.10.2
 	github.com/anacrolix/torrent v1.58.1
-	github.com/c-bata/go-prompt v0.2.6
 	github.com/ettle/strcase v0.2.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/gofrs/flock v0.12.1
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/googollee/go-socket.io v1.8.0-rc.1.0.20230904084053-b044011d047b
 	github.com/hekmon/transmissionrpc/v2 v2.0.1
+	github.com/influxdata/go-prompt v0.2.8
 	github.com/jpillora/go-tld v1.2.1
 	github.com/mattn/go-runewidth v0.0.16
 	github.com/natefinch/atomic v1.0.1

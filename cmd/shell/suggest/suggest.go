@@ -6,8 +6,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/c-bata/go-prompt"
 	"github.com/google/shlex"
+	"github.com/influxdata/go-prompt"
 
 	"github.com/sagan/ptool/client"
 	"github.com/sagan/ptool/cmd"

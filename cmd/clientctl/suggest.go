@@ -3,7 +3,7 @@ package clientctl
 import (
 	"strings"
 
-	"github.com/c-bata/go-prompt"
+	"github.com/influxdata/go-prompt"
 
 	"github.com/sagan/ptool/cmd"
 	"github.com/sagan/ptool/cmd/shell/suggest"
