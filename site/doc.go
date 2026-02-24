@@ -29,7 +29,7 @@
 //
 // Get a site instance:
 //
-//	siteInstance, err := site.GetSite("keepfrds")
+//	siteInstance, err := site.CreateSite("keepfrds")
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
