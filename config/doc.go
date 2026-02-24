@@ -53,7 +53,6 @@
 //
 // Load and access configuration:
 //
-//	config.Init()
 //	cfg := config.Get()
 //	for _, client := range cfg.ClientsEnabled {
 //	    fmt.Println(client.Name)
