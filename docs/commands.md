@@ -92,8 +92,9 @@ ptool <command> [args...] [flags]
 | [version](shell.md) | 版本信息 |
 | [alias](shell.md) | 执行命令别名 |
 
-## 全局参数
+## 常用全局参数
 
+下表仅列出最常用的全局参数，完整全局参数列表请通过 `ptool --help` 或子命令的 `--help` 查看。
 | 参数 | 说明 |
 |------|------|
 | `--config string` | 指定配置文件路径 |
