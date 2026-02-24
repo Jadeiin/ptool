@@ -81,11 +81,12 @@ ptool brush local keepfrds
 
 使用 Linux cron job 或 Windows 计划任务定时执行刷流命令。
 
-## 全局参数
+## 常用全局参数
 
 - `--config string`: 手动指定配置文件路径
 - `-v, -vv, -vvv`: Verbose 模式，输出更多日志
 
+更多全局参数可通过 `ptool --help` 查看，例如 `--timeout`、`--proxy`、`--timezone`、`--insecure` 等。
 ## 获取帮助
 
 ```bash
