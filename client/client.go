@@ -128,7 +128,7 @@ type Client interface {
 	// download / export .torrent file for a torrent in client
 	ExportTorrentFile(infoHash string) ([]byte, error)
 	GetTorrent(infoHash string) (*Torrent, error)
-	// category: "none" is a special value to select uncategoried torrents.
+	// category: "none" is a special value to select uncategorized torrents.
 	// stateFilter: _all|_active|_done|_undone, or any state value (possibly with a _ prefix)
 	GetTorrents(stateFilter string, category string, showAll bool) ([]*Torrent, error)
 	GetTorrentsByContentPath(contentPath string) ([]*Torrent, error)
@@ -783,7 +783,7 @@ func QueryTorrents(clientInstance Client, category string, tag string, filter st
 
 // Query torrents that meet criterion and return infoHashes. Specially, return nil slice if all torrents selected.
 // If all hashOrStateFilters is plain info-hash and all other conditions empty, just return hashOrStateFilters,nil.
-// category: "none" is a special value to select uncategoried torrents.
+// category: "none" is a special value to select uncategorized torrents.
 // tag: comma-separated list, a torrent matches if it has any tag that in the list;
 // specially, "none" means untagged torrents.
 func SelectTorrents(clientInstance Client, category string, tag string, filter string,
