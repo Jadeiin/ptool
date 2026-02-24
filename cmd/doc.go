@@ -36,7 +36,7 @@
 //
 // # Global Flags
 //
-// Flags available for all commands:
+// The following persistent flags are available for all commands:
 //   - --config string: Specify config file path
 //   - -v, -vv, -vvv: Increase verbosity level
 //   - --timeout int: Network timeout in seconds
@@ -44,7 +44,11 @@
 //   - --timezone string: Override timezone
 //   - --insecure: Skip TLS verification
 //   - --lock string: Lock file path
-//   - --global-lock: Use global lock
+//   - --lock-or-exit: Exit immediately if lock cannot be acquired (used with --lock)
+//   - --global-lock: Use global lock (shared across all ptool instances in the same config dir)
+//   - --fork: Run ptool in background/daemon mode (Linux only)
+//   - --dump-headers: Dump HTTP request/response headers to log
+//   - --dump-bodies: Dump HTTP request/response headers and bodies to log
 //
 // # Interactive Shell
 //
