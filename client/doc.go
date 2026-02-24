@@ -25,7 +25,7 @@
 //
 // Get a client instance:
 //
-//	clientInstance, err := client.GetClient("local")
+//	clientInstance, err := client.CreateClient("local")
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
