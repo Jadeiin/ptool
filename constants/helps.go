@@ -28,9 +28,9 @@ const HELP_ARG_TRACKER = `Filter torrents by tracker url or domain. Use "` +
 
 const HELP_ARG_FILTER_TORRENT = "Filter torrents by name"
 
-const HELP_ARG_CATEGORY = `Filter torrents by category. Use "` + NONE + `" to select uncategoried torrents`
+const HELP_ARG_CATEGORY = `Filter torrents by category. Use "` + NONE + `" to select uncategorized torrents`
 const HELP_ARG_CATEGORY_XSEED = `Only xseed torrents that belongs to this category. Use "` +
-	NONE + `" to select uncategoried torrents`
+	NONE + `" to select uncategorized torrents`
 
 const HELP_ARG_TAG = `Filter torrents by tag. Comma-separated list. ` +
 	`Torrent which tags contain any one in the list matches. Use "` + NONE + `" to select untagged torrents`

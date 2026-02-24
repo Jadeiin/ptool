@@ -63,7 +63,7 @@ func init() {
 	command.Flags().StringVarP(&category, "category", "", "", constants.HELP_ARG_CATEGORY)
 	command.Flags().StringVarP(&tag, "tag", "", "", constants.HELP_ARG_TAG)
 	command.Flags().StringVarP(&setCategory, "set-category", "", "", `Modify category of torrents. `+
-		`To make torrents become uncategoried, set it to "`+constants.NONE+`"`)
+		`To make torrents become uncategorized, set it to "`+constants.NONE+`"`)
 	command.Flags().StringVarP(&setSavePath, "set-save-path", "", "", "Modify save path of torrents")
 	command.Flags().StringVarP(&addTags, "add-tags", "", "", "Add tags to torrent (comma-separated)")
 	command.Flags().StringVarP(&removeTags, "remove-tags", "", "", "Remove tags from torrent (comma-separated)")

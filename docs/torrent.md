@@ -270,7 +270,7 @@ ptool movesavepath --client <client> <old-save-path> <new-save-path>
 ptool movesavepath --client local /root/Downloads /var/Downloads
 
 # Docker 环境（路径映射）
-ptool movesavepath --client local /root/Downloads/Uncategoried /root/Downloads/Others --map-save-path "/root/Downloads:/Downloads"
+ptool movesavepath --client local /root/Downloads/Uncategorized /root/Downloads/Others --map-save-path "/root/Downloads:/Downloads"
 ```
 
 说明:

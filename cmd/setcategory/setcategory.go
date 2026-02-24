@@ -18,7 +18,7 @@ var command = &cobra.Command{
 	Long: fmt.Sprintf(`Set category of torrents in client.
 %s.
 
-To make torrents "uncategoried", set {category} to %q.`, constants.HELP_INFOHASH_ARGS, constants.NONE),
+To make torrents "uncategorized", set {category} to %q.`, constants.HELP_INFOHASH_ARGS, constants.NONE),
 	Args: cobra.MatchAll(cobra.MinimumNArgs(2), cobra.OnlyValidArgs),
 	RunE: setcategory,
 }
