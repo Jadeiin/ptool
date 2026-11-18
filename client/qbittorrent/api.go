@@ -301,7 +301,7 @@ func (qbtorrent *apiTorrentInfo) ToTorrentState() string {
 	switch qbtorrent.State {
 	case "stalledUP", "queuedUP", "forcedUP", "uploading":
 		state = "seeding"
-	case "metaDL", "allocating", "stalledDL", "queuedDL", "forcedDL", "downloading":
+	case "metaDL", "forcedMetaDL", "allocating", "stalledDL", "queuedDL", "forcedDL", "downloading":
 		state = "downloading"
 	case "pausedUP", "stoppedUP":
 		state = "completed"

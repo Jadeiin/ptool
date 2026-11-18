@@ -79,6 +79,9 @@ func (qbclient *Client) SetTorrentsShareLimits(infoHashes []string, ratioLimit f
 	// The maximum amount of time (minutes) the torrent is allowed to seed while being inactive.
 	// -2 means the global limit should be used, -1 means no limit.
 	data.Add("inactiveSeedingTimeLimit", fmt.Sprint(-2))
+	// qBittorrent 5.3+ requires the action and matching mode as well.
+	data.Add("shareLimitAction", "Default")
+	data.Add("shareLimitsMode", "Default")
 	return qbclient.apiPost("api/v2/torrents/setShareLimits", data)
 }
 
@@ -87,6 +90,7 @@ func (qbclient *Client) apiPost(apiUrl string, data url.Values) error {
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
@@ -94,8 +98,7 @@ func (qbclient *Client) apiPost(apiUrl string, data url.Values) error {
 	if string(body) == "Fails." {
 		return fmt.Errorf("apiPost error: Fails")
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("apiPost error: status=%d", resp.StatusCode)
 	}
 	return nil
@@ -196,6 +199,7 @@ func (qbclient *Client) AddTorrent(torrentContent []byte, option *client.Torrent
 				mp.WriteField("stopCondition", "FilesChecked")
 			}
 			mp.WriteField("skip_checking", "true")
+			mp.WriteField("seedMode", "true") // qBittorrent 5.3+ renamed skip_checking.
 		}
 		mp.WriteField("upLimit", fmt.Sprint(option.UploadSpeedLimit))
 		mp.WriteField("dlLimit", fmt.Sprint(option.DownloadSpeedLimit))
@@ -224,7 +228,7 @@ func (qbclient *Client) AddTorrent(torrentContent []byte, option *client.Torrent
 		return fmt.Errorf("add torrent error: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		return fmt.Errorf("add torrent error: status=%d", resp.StatusCode)
 	}
 	return err
@@ -668,7 +672,7 @@ func (qbclient *Client) buildDerivative() {
 		qbclient.data.Torrents[hash] = torrent
 		usize := torrent.Size - torrent.Completed
 		unfinishedSize += usize
-		if torrent.State != "pausedDL" {
+		if torrent.State != "pausedDL" && torrent.State != "stoppedDL" {
 			unfinishedDownloadingSize += usize
 		}
 		contentPathTorrents[torrent.ContentPath()] = append(contentPathTorrents[torrent.ContentPath()], torrent)
@@ -1057,6 +1061,7 @@ func (qbclient *Client) EditTorrentTracker(infoHash string, oldTracker string,
 	data := url.Values{
 		"hash":    {infoHash},
 		"origUrl": {oldTracker},
+		"url":     {oldTracker}, // qBittorrent 5.2+ renamed origUrl.
 		"newUrl":  {newTracker},
 	}
 	return qbclient.apiPost("api/v2/torrents/editTracker", data)
