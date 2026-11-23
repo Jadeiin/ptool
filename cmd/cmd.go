@@ -42,6 +42,7 @@ visit https://github.com/sagan/ptool for source codes and other infomation.`,
 }
 
 var (
+	configPath       string
 	shellCompletions = map[string](func(document *prompt.Document) []prompt.Suggest){}
 	ShellHistory     *ShellHistoryStruct
 )
@@ -49,7 +50,7 @@ var (
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
-	// cobra-prompt will start a new cobra context each time executing a command
+	// Cobra calls its initializers on each shell command.
 	cobra.OnInitialize(sync.OnceFunc(func() {
 		if config.Fork {
 			osutil.Fork("--fork")
@@ -63,8 +64,8 @@ func Execute() {
 			os.Setenv("TZ", config.Tz)
 		}
 		// level: panic(0), fatal(1), error(2), warn(3), info(4), debug(5), trace(6). Default level = warning(3)
-		config.ConfigDir = filepath.Dir(config.ConfigFile)
-		config.ConfigFile = filepath.Base(config.ConfigFile)
+		config.ConfigDir = filepath.Dir(configPath)
+		config.ConfigFile = filepath.Base(configPath)
 		configExt := filepath.Ext(config.ConfigFile)
 		config.ConfigName = config.ConfigFile[:len(config.ConfigFile)-len(configExt)]
 		if configExt != "" {
@@ -173,7 +174,7 @@ func init() {
 		`Temporarily set the http / network request timeout during this session (seconds). `+
 			`To set timeout permanently, add "siteTimeout = 5" line to the top of ptool.toml config file. `+
 			`-1 == infinite`)
-	RootCmd.PersistentFlags().StringVarP(&config.ConfigFile, "config", "", config.DefaultConfigFile,
+	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", config.DefaultConfigFile,
 		"Config file ([ptool.toml])")
 	RootCmd.PersistentFlags().StringVarP(&config.LockFile, "lock", "", "",
 		"Lock filename. If set, ptool will acquire the lock on the file before executing command. "+
@@ -212,7 +213,7 @@ func Exit(code int) {
 	os.Exit(code)
 }
 
-// cobra-prompt dynamic suggestions
+// AddShellCompletion registers a completion callback by command annotation.
 func AddShellCompletion(name string, f func(document *prompt.Document) []prompt.Suggest) {
 	shellCompletions[name] = f
 }

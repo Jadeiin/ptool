@@ -44,6 +44,18 @@
 - [开发版本](https://ci.appveyor.com/project/sagan/ptool/build/artifacts) (根据默认分支最新代码自动构建)
 - [稳定版本](https://github.com/sagan/ptool/releases)
 
+### 从源码构建
+
+使用 Go 1.23 或更新版本。
+
+```bash
+go build -mod=readonly .
+go test -mod=readonly ./...
+```
+
+依赖版本和校验和记录在 `go.mod` 和 `go.sum`。调整依赖后运行 `go mod tidy`，提交更新的这两个文件。
+离线构建可先在联网环境运行 `go mod vendor`，再用 `go build -mod=vendor .` 构建。生成的 `vendor/` 目录由 Git 忽略。
+
 ### 创建配置
 
 ```bash

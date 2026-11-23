@@ -12,7 +12,6 @@ import (
 	"time"
 	"unicode/utf16"
 
-	socketio "github.com/googollee/go-socket.io"
 	"github.com/sagan/ptool/config"
 	"github.com/sagan/ptool/constants"
 	"github.com/sagan/ptool/site"
@@ -21,18 +20,17 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// Reseed API backend: https://github.com/tongyifan/Reseed-backend , it's a sock.io server,
-// with the main websocket API and some additional RESTful APIs.
+// Reseed exposes Socket.IO and HTTP APIs. The backend source is at
+// https://github.com/tongyifan/Reseed-backend.
 // All APIs (except "login" API) requires authorization token in header: "Authorization: Bearar <token>".
 // To acquire token: POST https://reseed-api.tongyifan.me/login with username & password,
 // receive json {msg, success: true, token}. token is ephemeral, expires in 1 day.
-// Note for websocket API, if token does NOT exists, server will return 500 error when connecting;
-// however, if token exists but is expired or invalid, server will just hang (do NOT response to any request).
-// The websocket API uses sock.io events:
+// The Socket.IO server returns HTTP 500 when the token is missing.
+// With an invalid or expired token the server can leave the request waiting for results.
+// The Socket.IO API uses these events.
 // "file" event: client -> server.
 // "reseed result" event: server -> client.
-// Note the websocket API ONLY accept frames that is pure ASCII,
-// all unicode characters in JSON must be encoded in '\uXXXX' format.
+// The backend expects ASCII frames, so JSON must escape Unicode as \uXXXX.
 const RESEED_API = "https://reseed-api.tongyifan.me/"
 
 type Site struct {
@@ -127,61 +125,16 @@ func GetReseedTorrents(username string, password string, sites []*config.SiteCon
 		return
 	}
 	reseed2LocalMap := GenerateReseed2LocalSiteMap(reseedSites, sites)
-	client, err := socketio.NewClient(RESEED_API, nil)
-	if err != nil {
-		err = fmt.Errorf("failed to create sock.io client: %w", err)
-		return
-	}
-	// must provide a "reply" event listener
-	client.OnEvent("reply", func(s socketio.Conn, msg string) {
-		// log.Println("Receive Message /reply: ", "reply", msg)
-	})
-	header := http.Header{}
-	if token != "" {
-		header.Set("Authorization", "Bearar "+token)
-	}
-	if err = client.Connect(header); err != nil {
-		err = fmt.Errorf("failed to connect to reseed backend: %w", err)
-		return
-	}
-	timeoutPeriod := time.Second * time.Duration(timeout)
-	timeoutTicker := time.NewTicker(timeoutPeriod)
-	chResult := make(chan *ReseedResult, 1)
-	chErr := make(chan error, 1)
-	client.OnEvent("reseed result", func(conn socketio.Conn, message *ReseedResult) {
-		log.Tracef("reseed result: %v", message)
-		chResult <- message
-	})
-	client.OnError(func(c socketio.Conn, err error) {
-		log.Tracef("Server error: %v", err)
-		chErr <- err
-	})
-	go client.Emit("file", file)
 	cntResult := 0
-loop:
-	for {
-		select {
-		case result := <-chResult:
-			log.Tracef("reseed result: %v", result)
-			cntResult++
-			results = append(results, parseReseedResult(reseed2LocalMap, savePathMap,
-				result.Name, true, result.CmpSuccess)...)
-			results2 = append(results2, parseReseedResult(reseed2LocalMap, savePathMap,
-				result.Name, false, result.CmpWarning)...)
-			timeoutTicker.Reset(timeoutPeriod)
-			if cntResult == len(file) {
-				break loop
-			}
-		case e := <-chErr:
-			err = e
-			break loop
-		case <-timeoutTicker.C: // the websocket API has no "end" event.
-			break loop
-		}
-	}
-	client.Close()
-	timeoutTicker.Stop()
-	if cntResult == 0 {
+	err = requestReseedResults(RESEED_API, token, file, time.Duration(timeout)*time.Second, func(result ReseedResult) {
+		log.Tracef("reseed result: %v", result)
+		cntResult++
+		results = append(results, parseReseedResult(reseed2LocalMap, savePathMap,
+			result.Name, true, result.CmpSuccess)...)
+		results2 = append(results2, parseReseedResult(reseed2LocalMap, savePathMap,
+			result.Name, false, result.CmpWarning)...)
+	})
+	if cntResult == 0 && err == nil {
 		log.Debugf("server did not return any response")
 	}
 	return

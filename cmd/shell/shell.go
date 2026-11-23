@@ -2,12 +2,9 @@ package shell
 
 import (
 	"fmt"
-	"strings"
 
-	"github.com/google/shlex"
 	"github.com/influxdata/go-prompt"
 	"github.com/spf13/cobra"
-	cobraprompt "github.com/stromland/cobra-prompt"
 
 	"github.com/sagan/ptool/cmd"
 	"github.com/sagan/ptool/config"
@@ -48,35 +45,6 @@ func init() {
 	cmd.RootCmd.AddCommand(command)
 }
 
-var ptoolPrompt = &cobraprompt.CobraPrompt{
-	RootCmd:                  cmd.RootCmd,
-	PersistFlagValues:        true,
-	ShowHelpCommandAndFlags:  true,
-	DisableCompletionCommand: true,
-	GoPromptOptions: []prompt.Option{
-		prompt.OptionTitle("ptool-shell"),
-		prompt.OptionPrefix("> "),
-		prompt.OptionShowCompletionAtStart(),
-	},
-	DynamicSuggestionsFunc: cmd.ShellDynamicSuggestionsFunc,
-	OnErrorFunc: func(err error) {
-		// error already printed in RootCmd
-		// cmd.RootCmd.PrintErrln(err)
-	},
-	// InArgsParser: utils.ParseArgs,
-	InArgsParser: func(in string) []string {
-		words, err := shlex.Split(in)
-		if err != nil {
-			return nil
-		}
-		// allow "!cmd" style (no space between) external cmd invocation
-		if len(words) > 0 && strings.HasPrefix(words[0], "!") && len(words[0]) > 1 {
-			words = append([]string{"!", words[0][1:]}, words[1:]...)
-		}
-		return words
-	},
-}
-
 func shell(command *cobra.Command, args []string) error {
 	if config.InShell {
 		return fmt.Errorf(`you cann't run "shell" command in shell itself`)
@@ -87,11 +55,15 @@ func shell(command *cobra.Command, args []string) error {
 	// once in shell, one can only quit shell by exit the program.
 	config.InShell = true
 	cmd.RootCmd.SilenceErrors = false
-	ptoolPrompt.GoPromptOptions = append(ptoolPrompt.GoPromptOptions,
-		prompt.OptionMaxSuggestion(uint16(config.Get().ShellMaxSuggestions)))
+	options := []prompt.Option{
+		prompt.OptionTitle("ptool-shell"),
+		prompt.OptionPrefix("> "),
+		prompt.OptionShowCompletionAtStart(),
+		prompt.OptionMaxSuggestion(uint16(config.Get().ShellMaxSuggestions)),
+	}
 	history, err := cmd.ShellHistory.Load()
 	if err == nil {
-		ptoolPrompt.GoPromptOptions = append(ptoolPrompt.GoPromptOptions, prompt.OptionHistory(history))
+		options = append(options, prompt.OptionHistory(history))
 	}
 	cmd.RootCmd.AddCommand(shellCommands...)
 	for name := range shellCommandSuggestions {
@@ -104,6 +76,14 @@ func shell(command *cobra.Command, args []string) error {
 		fmt.Printf(`For full help of ptool shell, type "shell -h"` + "\n")
 		fmt.Printf(`To mute this message, add "hushshell = true" line to the top of ptool.toml config file` + "\n")
 	}
-	ptoolPrompt.Run()
+	cmd.RootCmd.InitDefaultHelpCmd()
+	cmd.RootCmd.CompletionOptions.DisableDefaultCmd = true
+	cmd.RootCmd.PersistentFlags().Bool(persistFlagValuesFlag, false, "Persist last given value for flags")
+	prompt.New(func(line string) {
+		// Cobra prints execution errors because SilenceErrors is false in the shell.
+		_ = executeShellLine(cmd.RootCmd, line)
+	}, func(document prompt.Document) []prompt.Suggest {
+		return shellSuggestions(cmd.RootCmd, &document)
+	}, options...).Run()
 	return nil
 }

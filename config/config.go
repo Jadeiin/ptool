@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
-	"io"
-	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -743,29 +741,34 @@ func (configData *ConfigStruct) GetIyuuDomain() string {
 	return configData.IyuuDomain
 }
 
-func CreateDefaultConfig() (err error) {
-	if err := os.MkdirAll(ConfigDir, constants.PERM_DIR); err != nil {
+func CreateDefaultConfig() error {
+	return CreateDefaultConfigAt(filepath.Join(ConfigDir, ConfigFile))
+}
+
+// CreateDefaultConfigAt writes an example configuration to the given path.
+func CreateDefaultConfigAt(configFile string) error {
+	configDir := filepath.Dir(configFile)
+	if err := os.MkdirAll(configDir, constants.PERM_DIR); err != nil {
 		return fmt.Errorf("failed to create config dir: %w", err)
 	}
-	lock, err := LockConfigDirFile(GLOBAL_INTERNAL_LOCK_FILE)
+	lock, err := lockConfigFile(filepath.Join(configDir, GLOBAL_INTERNAL_LOCK_FILE))
 	if err != nil {
 		return err
 	}
 	defer lock.Unlock()
-	configFile := filepath.Join(ConfigDir, ConfigFile)
 	if _, err := os.Stat(configFile); !os.IsNotExist(err) {
 		if err == nil {
 			return fmt.Errorf("config file already exists")
 		}
 		return fmt.Errorf("failed to access config file: %w", err)
 	}
-	var file fs.File
-	if file, err = DefaultConfigFs.Open(EXAMPLE_CONFIG_FILE + "." + ConfigType); err != nil {
-		return fmt.Errorf("unsupported config file type %q: %w", ConfigType, err)
+	configType := strings.TrimPrefix(filepath.Ext(configFile), ".")
+	if configType == "" {
+		configType = ConfigType
 	}
-	contents, err := io.ReadAll(file)
+	contents, err := DefaultConfigFs.ReadFile(EXAMPLE_CONFIG_FILE + "." + configType)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("unsupported config file type %q: %w", configType, err)
 	}
 	return atomic.WriteFile(configFile, bytes.NewReader(contents))
 }
@@ -796,9 +799,17 @@ func GetProxy(proxies ...string) string {
 
 // Lock the file with provided name in config dir.
 func LockConfigDirFile(name string) (*flock.Flock, error) {
-	lock := flock.New(filepath.Join(ConfigDir, name))
-	if ok, err := lock.TryLock(); err != nil || !ok {
-		return nil, fmt.Errorf("unable to acquire lock <config_dir>/%q: %w", name, err)
+	return lockConfigFile(filepath.Join(ConfigDir, name))
+}
+
+func lockConfigFile(path string) (*flock.Flock, error) {
+	lock := flock.New(path)
+	ok, err := lock.TryLock()
+	if err != nil {
+		return nil, fmt.Errorf("unable to acquire lock %q: %w", path, err)
+	}
+	if !ok {
+		return nil, fmt.Errorf("unable to acquire lock %q", path)
 	}
 	return lock, nil
 }

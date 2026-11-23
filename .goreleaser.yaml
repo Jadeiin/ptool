@@ -2,15 +2,18 @@
 # Make sure to check the documentation at https://goreleaser.com
 # Docs:
 # https://goreleaser.com/customization/builds/
+version: 2
+
 before:
   hooks:
-    # You may remove this if you don't use go modules.
-    - go mod tidy
+    - go mod tidy -diff
     # you may remove this if you don't need go generate
     - go generate ./...
 builds:
   - env:
       - CGO_ENABLED=0
+    flags:
+      - -mod=readonly
     goos:
       - linux
       - windows
@@ -23,14 +26,14 @@ builds:
     ldflags:
       - -s -w -X github.com/sagan/ptool/version.Version={{.Version}} -X github.com/sagan/ptool/version.Commit={{.Commit}} -X github.com/sagan/ptool/version.Date={{.Date}} -X main.builtBy=goreleaser
 archives:
-  - format: zip
+  - formats: [zip]
     # this name template makes the OS and Arch compatible with the results of uname.
     name_template: >-
       {{ .ProjectName }}-v{{ .Version }}-{{ .Os }}-{{ .Arch }}
 checksum:
   name_template: "checksums.txt"
 snapshot:
-  name_template: "{{ incpatch .Version }}-snapshot"
+  version_template: "{{ incpatch .Version }}-snapshot"
 changelog:
   sort: asc
   filters:

@@ -23,8 +23,19 @@ func init() {
 }
 
 func create(cmd *cobra.Command, args []string) error {
-	fmt.Printf("Creating config file %s%c%s\n", config.ConfigDir, filepath.Separator, config.ConfigFile)
-	err := config.CreateDefaultConfig()
+	configFile := filepath.Join(config.ConfigDir, config.ConfigFile)
+	if config.InShell && cmd.Flags().Changed("config") {
+		path, err := cmd.Flags().GetString("config")
+		if err != nil {
+			return err
+		}
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(config.ConfigDir, path)
+		}
+		configFile = path
+	}
+	fmt.Printf("Creating config file %s\n", configFile)
+	err := config.CreateDefaultConfigAt(configFile)
 	if err == nil {
 		fmt.Printf("Successfully created config file. Now edit it to add your sites / clients / others.\n")
 	}

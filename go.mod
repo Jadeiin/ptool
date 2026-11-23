@@ -2,15 +2,6 @@ module github.com/sagan/ptool
 
 go 1.23.0
 
-// Change Client.Connect signature to func (c *Client) Connect(requestHeader http.Header)
-replace github.com/googollee/go-socket.io => ./go-socket.io
-
-// workaround for some problem
-replace github.com/hekmon/transmissionrpc/v2 => ./transmissionrpc
-
-// workaround for some problem
-replace github.com/stromland/cobra-prompt => ./cobra-prompt
-
 require (
 	github.com/KarpelesLab/reflink v1.0.2
 	github.com/Masterminds/sprig/v3 v3.3.0
@@ -33,8 +24,8 @@ require (
 	github.com/shibumi/go-pathspec v1.3.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.9.1
+	github.com/spf13/pflag v1.1.0
 	github.com/spf13/viper v1.19.0
-	github.com/stromland/cobra-prompt v0.5.0
 	golang.org/x/exp v0.0.0-20250218142911-aa4b98e5adaa
 	golang.org/x/net v0.35.0
 	gorm.io/gorm v1.25.12
@@ -48,11 +39,8 @@ require (
 	github.com/bradfitz/iter v0.0.0-20191230175014-e8f45d346db8 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fatih/color v1.18.0 // indirect
-	github.com/gofrs/uuid v4.4.0+incompatible // indirect
-	github.com/gomodule/redigo v1.9.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/goph/emperror v0.17.2 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
@@ -102,7 +90,6 @@ require (
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.12.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
-	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.35.0 // indirect

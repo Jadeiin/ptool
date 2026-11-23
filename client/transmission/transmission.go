@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"github.com/ettle/strcase"
 	transmissionrpc "github.com/hekmon/transmissionrpc/v2"
@@ -29,6 +30,8 @@ type Client struct {
 	ClientConfig              *config.ClientConfigStruct
 	Config                    *config.ConfigStruct
 	client                    *transmissionrpc.Client
+	rpcURL                    string
+	trackerSessionID          atomic.Value // string
 	datatime                  int64
 	datafull                  bool
 	datatimeMeta              int64
@@ -842,13 +845,10 @@ func (trclient *Client) EditTorrentTracker(infoHash string, oldTracker string, n
 	if oldTrackerUrl == newTrackerUrl {
 		return nil
 	}
-	// this is broken for now as transmission RPC expects trackerReplace to be
-	// a mixed types array of ids (integer) and urls(string)
-	// it's a problem of transmissionrpc library
-	return trclient.client.TorrentSet(context.TODO(), transmissionrpc.TorrentSetPayload{
-		IDs:            []int64{*trtorrent.ID},
-		TrackerReplace: []any{oldTrackerId, newTrackerUrl},
-	})
+	if err := trclient.replaceTracker(context.TODO(), *trtorrent.ID, oldTrackerId, newTrackerUrl); err != nil {
+		return fmt.Errorf("'torrent-set' rpc method failed: %w", err)
+	}
+	return nil
 }
 
 func (trclient *Client) AddTorrentTrackers(infoHash string, trackers []string,
@@ -923,9 +923,9 @@ func NewClient(name string, clientConfig *config.ClientConfigStruct, config *con
 	portStr := urlObj.Port()
 	port := int64(80)
 	isHttps := schema == "https"
-	rpcUri := "" // Leave empty to use default "/transmission/rpc"
-	if urlObj.Path != "" && urlObj.Path != "/" {
-		rpcUri = urlObj.Path
+	rpcPath := urlObj.EscapedPath()
+	if rpcPath == "" || rpcPath == "/" {
+		rpcPath = "/transmission/rpc"
 	}
 	if portStr != "" {
 		port = util.ParseInt(portStr)
@@ -936,14 +936,17 @@ func NewClient(name string, clientConfig *config.ClientConfigStruct, config *con
 			port = 80
 		}
 	}
-	if (schema != "http" && schema != "https") || hostname == "" || port == 0 {
+	if (schema != "http" && schema != "https") || hostname == "" || port < 1 || port > 65535 {
 		return nil, fmt.Errorf("invalid tr url: %s", clientConfig.Url)
+	}
+	if strings.Contains(hostname, ":") {
+		hostname = "[" + strings.ReplaceAll(hostname, "%", "%25") + "]"
 	}
 	client, err := transmissionrpc.New(hostname, clientConfig.Username, clientConfig.Password,
 		&transmissionrpc.AdvancedConfig{
 			HTTPS:  isHttps,
 			Port:   uint16(port),
-			RPCURI: rpcUri,
+			RPCURI: rpcPath,
 		})
 	if err != nil {
 		return nil, err
@@ -953,6 +956,7 @@ func NewClient(name string, clientConfig *config.ClientConfigStruct, config *con
 		ClientConfig: clientConfig,
 		Config:       config,
 		client:       client,
+		rpcURL:       fmt.Sprintf("%s://%s:%d%s", schema, hostname, port, rpcPath),
 	}, nil
 }
 
