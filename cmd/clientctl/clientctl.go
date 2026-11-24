@@ -137,7 +137,7 @@ func clientctl(cmd *cobra.Command, args []string) error {
 		}
 		index := slices.IndexFunc(allOptions, func(o Option) bool { return o.Name == name })
 		if index == -1 {
-			return fmt.Errorf("Unrecognized parameter: " + name)
+			return fmt.Errorf("Unrecognized parameter: %s", name)
 		}
 		option := allOptions[index]
 		if len(s) == 1 {

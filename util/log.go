@@ -91,18 +91,18 @@ func logBody(title string, header http.Header, body []byte) {
 		log.WithFields(log.Fields{
 			"body":        string(body),
 			"contentType": contentType,
-		}).Errorf(title)
+		}).Error(title)
 	} else if len(body) <= maxBinaryBody {
 		log.WithFields(log.Fields{
 			"body":        body,
 			"contentType": contentType,
-		}).Errorf(title)
+		}).Error(title)
 	} else {
 		log.WithFields(log.Fields{
 			"body_start":  body[:1024],
 			"length":      len(body),
 			"contentType": contentType,
-		}).Errorf(title)
+		}).Error(title)
 	}
 }
 

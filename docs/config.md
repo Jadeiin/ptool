@@ -1,6 +1,6 @@
 # 配置文件
 
-ptool 支持 TOML 或 YAML 格式的配置文件（推荐 TOML）。
+ptool 支持 TOML 或 YAML 格式的配置文件（推荐 TOML）。请使用小写扩展名，如 `.toml` 或 `.yaml`。
 
 ## 配置文件位置
 
@@ -114,7 +114,7 @@ cookie = "cookie_here"
 |------|------|------|
 | name | string | 站点名称 |
 | type | string | 站点类型 |
-| url | string | 站点首页 URL（方式 2 必填） |
+| url | string | 站点首页 URL（方式 2 必填，国际化域名请使用 Punycode） |
 | cookie | string | 站点 Cookie |
 | disabled | bool | 是否禁用 |
 | proxy | string | 代理服务器 |

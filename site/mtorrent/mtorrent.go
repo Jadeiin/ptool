@@ -189,12 +189,12 @@ func (m *Site) do(path string, query neturl.Values, body any, result any) error 
 	}
 
 	reqHeaders := util.GetHttpReqHeaders(m.GetDefaultHttpHeaders(), m.GetSiteConfig().Cookie, site.GetUa(m))
-	res, err := m.HttpClient.Do(&azuretls.Request{
-		Method:   http.MethodPost,
-		Url:      fullPath,
-		Body:     body,
-		NoCookie: true, // disable azuretls internal cookie jar
-	}, reqHeaders)
+	res, err := util.DoAzureRequest(m.HttpClient, &azuretls.Request{
+		Method:         http.MethodPost,
+		Url:            fullPath,
+		Body:           body,
+		OrderedHeaders: reqHeaders,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to fetch url: %w", err)
 	}

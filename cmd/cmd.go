@@ -64,10 +64,13 @@ func Execute() {
 			os.Setenv("TZ", config.Tz)
 		}
 		// level: panic(0), fatal(1), error(2), warn(3), info(4), debug(5), trace(6). Default level = warning(3)
-		config.ConfigDir = filepath.Dir(configPath)
-		config.ConfigFile = filepath.Base(configPath)
+		filename, err := filepath.Abs(configPath)
+		if err != nil {
+			log.Fatalf("Failed to resolve config path %q: %v", configPath, err)
+		}
+		config.ConfigDir = filepath.Dir(filename)
+		config.ConfigFile = filepath.Base(filename)
 		configExt := filepath.Ext(config.ConfigFile)
-		config.ConfigName = config.ConfigFile[:len(config.ConfigFile)-len(configExt)]
 		if configExt != "" {
 			config.ConfigType = configExt[1:]
 		}

@@ -2,6 +2,7 @@
 package helper
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -195,10 +196,10 @@ func GetTorrentContent(torrent string, defaultSite string,
 	if tinfo, err = torrentutil.ParseTorrent(content); err != nil {
 		msg := fmt.Sprintf("%s: failed to parse torrent: %v", torrent, err)
 		if ignoreParsingError {
-			log.Debugf(msg)
+			log.Debug(msg)
 			err = nil
 		} else {
-			err = fmt.Errorf(msg)
+			err = errors.New(msg)
 		}
 		return
 	}

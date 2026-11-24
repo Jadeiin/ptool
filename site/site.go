@@ -21,7 +21,6 @@ import (
 	"github.com/sagan/ptool/constants"
 	"github.com/sagan/ptool/jinja"
 	"github.com/sagan/ptool/util"
-	"github.com/sagan/ptool/util/crypto"
 	"github.com/sagan/ptool/util/impersonateutil"
 )
 
@@ -98,7 +97,7 @@ var (
 var (
 	registryMap  = map[string]*RegInfo{}
 	sites        = map[string]Site{}
-	siteSessions = map[string]*azuretls.Session{}
+	siteSessions = map[siteSessionKey]*azuretls.Session{}
 	mu           sync.Mutex
 )
 
@@ -436,45 +435,50 @@ func CreateSiteHttpClient(siteConfig *config.SiteConfigStruct, globalConfig *con
 	if proxy == constants.NONE {
 		proxy = ""
 	}
-	sep := "\n"
-	specs := fmt.Sprint(ja3, sep, h2fingerprint, sep, proxy, sep, insecure, sep, timeout)
-	log.Tracef("Create site %s http client with specs %s", siteConfig.GetName(), specs)
-	hash := crypto.Md5String(specs)
-	mu.Lock()
-	defer mu.Unlock()
-	if siteSessions[hash] != nil {
-		return siteSessions[hash], httpHeaders, nil
-	}
-	session := azuretls.NewSession()
-	session.SetTimeout(time.Duration(timeout) * time.Second)
 	navigator := azuretls.Chrome
 	if impersonateProfile != nil {
 		navigator = impersonateProfile.Navigator
-	}
-	if ja3 != "" {
-		if err := session.ApplyJa3(ja3, navigator); err != nil {
-			return nil, nil, fmt.Errorf("failed to set ja3: %w", err)
-		}
-	}
-	if h2fingerprint != "" {
-		if err := session.ApplyHTTP2(h2fingerprint); err != nil {
-			return nil, nil, fmt.Errorf("failed to set h2 finterprint: %w", err)
-		}
-	}
-	if proxy != "" {
-		if err := session.SetProxy(proxy); err != nil {
-			return nil, nil, fmt.Errorf("failed to set proxy: %w", err)
-		}
-	}
-	if insecure {
-		session.InsecureSkipVerify = true
 	}
 	maxRedirects := config.DEFAULT_SITE_MAX_REDIRECTS
 	if siteConfig.MaxRedirects != 0 {
 		maxRedirects = siteConfig.MaxRedirects
 	}
+	key := siteSessionKey{
+		name: siteConfig.GetName(), url: siteConfig.Url,
+		navigator: navigator, ja3: ja3, http2: h2fingerprint,
+		proxy: proxy, insecure: insecure, timeout: timeout, maxRedirects: maxRedirects,
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if session := siteSessions[key]; session != nil {
+		return session, httpHeaders, nil
+	}
+	session := azuretls.NewSession()
+	session.PinManager = azuretls.NewPinManager()
+	session.PreHooksWithContext = []func(*azuretls.Context) error{prepareSiteRequest}
+	session.CheckRedirect = followSiteRedirect
+	session.InsecureSkipVerify = insecure
 	session.MaxRedirects = uint(maxRedirects)
-	siteSessions[hash] = session
+	session.SetTimeout(time.Duration(timeout) * time.Second)
+	if ja3 != "" {
+		if err := impersonateutil.ApplyJA3(session, ja3, navigator); err != nil {
+			session.Close()
+			return nil, nil, fmt.Errorf("failed to set ja3: %w", err)
+		}
+	}
+	if h2fingerprint != "" {
+		if err := session.ApplyHTTP2(h2fingerprint); err != nil {
+			session.Close()
+			return nil, nil, fmt.Errorf("failed to set h2 finterprint: %w", err)
+		}
+	}
+	if proxy != "" {
+		if err := setSiteProxy(session, proxy); err != nil {
+			session.Close()
+			return nil, nil, fmt.Errorf("failed to set proxy: %w", err)
+		}
+	}
+	siteSessions[key] = session
 	return session, httpHeaders, nil
 }
 
@@ -659,7 +663,7 @@ func UploadTorrent(siteInstance Site, httpClient *azuretls.Session, uploadUrl st
 	}
 	headers := util.GetHttpReqHeaders(siteInstance.GetDefaultHttpHeaders(), siteInstance.GetSiteConfig().Cookie, "")
 	if siteInstance.GetSiteConfig().Type == "nexusphp" {
-		headers = append(headers, []string{"Referer", siteInstance.GetSiteConfig().ParseSiteUrl("upload.php", false)})
+		headers.Set("Referer", siteInstance.GetSiteConfig().ParseSiteUrl("upload.php", false))
 	}
 	return util.PostUploadFile(httpClient, uploadUrl, "a.torrent", bytes.NewReader(contents), "file",
 		payload, headers)

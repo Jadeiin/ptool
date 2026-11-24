@@ -46,7 +46,7 @@
 
 ### 从源码构建
 
-使用 Go 1.23 或更新版本。
+使用 Go 1.27.4 或更新版本。
 
 ```bash
 go build -mod=readonly .

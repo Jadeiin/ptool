@@ -2,6 +2,7 @@ package util
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -91,11 +92,10 @@ func FetchUrlWithAzuretls(url string, client *azuretls.Session,
 	req := &azuretls.Request{
 		Method:         http.MethodGet,
 		Url:            url,
-		NoCookie:       true, // disable azuretls internal cookie jar
 		OrderedHeaders: GetHttpReqHeaders(headers, cookie, ua),
 	}
 	LogAzureHttpRequest(req)
-	res, err := client.Do(req)
+	res, err := DoAzureRequest(client, req)
 	LogAzureHttpResponse(res, err)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to fetch url: %w", err)
@@ -104,6 +104,37 @@ func FetchUrlWithAzuretls(url string, client *azuretls.Session,
 		return res, http.Header(res.Header), fmt.Errorf("failed to fetch url: status=%d", res.StatusCode)
 	}
 	return res, http.Header(res.Header), nil
+}
+
+// DoAzureRequest sends a request through a site session and reads its response body.
+func DoAzureRequest(client *azuretls.Session, req *azuretls.Request) (*azuretls.Response, error) {
+	ctx := req.Context()
+	if ctx == nil {
+		ctx = client.Context()
+	}
+	timeout := req.TimeOut
+	if timeout == 0 {
+		timeout = client.TimeOut
+	}
+	// AzureTLS omits its body deadline when the caller reads RawBody.
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	req.SetContext(ctx)
+	req.IgnoreBody = true
+
+	response, err := client.Do(req)
+	if err != nil {
+		return response, err
+	}
+	response.IgnoreBody = false
+	// A bodyless response can still carry Content-Encoding metadata.
+	if response.ContentLength == 0 || strings.EqualFold(req.Method, http.MethodHead) ||
+		response.StatusCode == http.StatusNoContent || response.StatusCode == http.StatusNotModified {
+		_ = response.CloseBody()
+		return response, nil
+	}
+	response.Body, err = response.ReadBody(response.RawBody, response.Header.Get("Content-Encoding"))
+	return response, err
 }
 
 func ParseUrlHostname(urlStr string) string {
@@ -313,12 +344,11 @@ func PostUploadFile(client *azuretls.Session, url string, filename string, file 
 		OrderedHeaders: [][]string{
 			{"Content-Type", mp.FormDataContentType()},
 		},
-		NoCookie: true,
 	}
 	req.OrderedHeaders = append(req.OrderedHeaders, headers...)
 	LogAzureHttpRequest(req)
 	LogAzureHttpRequesyBody(req, bodyData)
-	res, err = client.Do(req)
+	res, err = DoAzureRequest(client, req)
 	LogAzureHttpResponse(res, err)
 	if err != nil {
 		return nil, err

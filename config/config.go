@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"embed"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -283,7 +284,6 @@ var (
 	ConfigDir             = "" // "/root/.config/ptool"
 	ConfigFile            = "" // "ptool.toml"
 	DefaultConfigFile     = "" // set when start
-	ConfigName            = "" // "ptool"
 	ConfigType            = "" // "toml"
 	LockFile              = ""
 	Proxy                 = "" // proxy. It has the highest priority. Set by --proxy global flag
@@ -395,26 +395,25 @@ func Set() error {
 		newsites = append(newsites, newsite)
 	}
 	viper.Set("sites", newsites)
+	viper.SetConfigPermissions(0600)
 	return viper.WriteConfig()
 }
 
 func Get() *ConfigStruct {
 	once.Do(func() {
-		log.Debugf("Read config file %s/%s", ConfigDir, ConfigFile)
-		viper.SetConfigName(ConfigName)
-		viper.SetConfigType(ConfigType)
-		viper.AddConfigPath(ConfigDir)
-		err := viper.ReadInConfig()
-		if err != nil { // file does NOT exists
-			log.Infof("Fail to read config file: %v", err)
-		} else {
-			err = viper.Unmarshal(&configData)
-			if err != nil {
-				log.Errorf("Fail to parse config file: %v", err)
+		configData = &ConfigStruct{}
+		if ConfigFile != "" {
+			filename := filepath.Join(ConfigDir, ConfigFile)
+			log.Debugf("Read config file %s", filename)
+			viper.SetConfigFile(filename)
+			viper.SetConfigType(ConfigType)
+			if err := viper.ReadInConfig(); err == nil {
+				if err := viper.Unmarshal(configData); err != nil {
+					log.Fatalf("Failed to parse config file %q: %v", filename, err)
+				}
+			} else if !errors.Is(err, os.ErrNotExist) {
+				log.Fatalf("Failed to read config file %q: %v", filename, err)
 			}
-		}
-		if err != nil {
-			configData = &ConfigStruct{}
 		}
 		if configData.ShellMaxSuggestions == 0 {
 			configData.ShellMaxSuggestions = DEFAULT_SHELL_MAX_SUGGESTIONS
