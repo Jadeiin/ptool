@@ -11,15 +11,16 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 
+	"github.com/Masterminds/sprig/v3"
 	"github.com/Noooste/azuretls-client"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/term"
 
 	"github.com/sagan/ptool/config"
 	"github.com/sagan/ptool/constants"
-	"github.com/sagan/ptool/jinja"
 	"github.com/sagan/ptool/util"
 	"github.com/sagan/ptool/util/impersonateutil"
 )
@@ -516,6 +517,42 @@ func DownloadTorrentByUrl(siteInstance Site, httpClient *azuretls.Session, torre
 	return res.Body, filename, err
 }
 
+var uploadTemplateFuncs = func() template.FuncMap {
+	funcs := sprig.TxtFuncMap()
+	return template.FuncMap{
+		"get":       funcs["get"],
+		"has":       funcs["has"],
+		"join":      funcs["join"],
+		"regexFind": funcs["regexFind"],
+		"hasTag": func(tag string, tags any) bool {
+			switch tags := tags.(type) {
+			case []string:
+				return slices.Contains(tags, tag)
+			case string:
+				return strings.Contains(tags, tag)
+			default:
+				return false
+			}
+		},
+	}
+}()
+
+func renderUploadField(source string, data map[string]any, required bool) (string, error) {
+	tmpl := template.New("publish").Funcs(uploadTemplateFuncs)
+	if required {
+		tmpl.Option("missingkey=error")
+	}
+	tmpl, err := tmpl.Parse(source)
+	if err != nil {
+		return "", err
+	}
+	var output strings.Builder
+	if err := tmpl.Execute(&output, data); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(output.String()), nil
+}
+
 // Do a multipart/form type post request to upload torrent to site, return site response.
 // metadata is used as context when rendering payloadTemplate, the rendered payload be posted to site.
 // All values in payload will be TrimSpaced.
@@ -537,14 +574,19 @@ func UploadTorrent(siteInstance Site, httpClient *azuretls.Session, uploadUrl st
 		}
 	}
 
-	payload := url.Values{}
-	payloadTemplate := siteInstance.GetSiteConfig().UploadTorrentPayload
+	siteConfig := siteInstance.GetSiteConfig()
+	payloadTemplate := siteConfig.UploadTorrentPayload
 	if payloadTemplate == nil {
 		payloadTemplate = fallbackPayloadTemplate
 	}
-	if siteInstance.GetSiteConfig().UploadTorrentAdditionalPayload != nil {
-		payloadTemplate = util.AssignMap(nil, payloadTemplate,
-			siteInstance.GetSiteConfig().UploadTorrentAdditionalPayload)
+	payloadTemplate = util.AssignMap(map[string]string{}, payloadTemplate, siteConfig.UploadTorrentAdditionalPayload)
+	// Site-specific metadata overrides the shared raw fields.
+	for _, prefix := range []string{"_raw_", "_site_" + siteInstance.GetName() + "_"} {
+		for key := range metadata {
+			if field, ok := strings.CutPrefix(key, prefix); ok && field != "" {
+				payloadTemplate[field] = metadata.Get(key)
+			}
+		}
 	}
 
 	coverFile := metadata.Get(constants.METADATA_KEY_COVER)
@@ -565,53 +607,23 @@ func UploadTorrent(siteInstance Site, httpClient *azuretls.Session, uploadUrl st
 		}
 		metadataRaw[constants.METADATA_KEY_IMAGES] = images
 	}
-	for key := range payloadTemplate {
-		value, err := jinja.Render(payloadTemplate[key], metadataRaw)
+	var requiredFields []string
+	if keys := siteConfig.UploadTorrentPayloadRequiredKeys; keys != constants.NONE {
+		requiredFields = util.SplitCsv(keys)
+	}
+	payload := url.Values{}
+	for key, source := range payloadTemplate {
+		value, err := renderUploadField(source, metadataRaw, slices.Contains(requiredFields, key))
 		if err != nil {
 			return nil, fmt.Errorf("failed to render %s: %w", key, err)
 		}
 		payload.Set(key, value)
 	}
-	// raw payload directly set from metadata. e.g. "_raw_foo".
-	for key := range metadata {
-		if !strings.HasPrefix(key, "_raw_") {
-			continue
-		}
-		template := metadata.Get(key)
-		key = key[len("_raw_"):]
-		if key == "" {
-			continue
-		}
-		value, err := jinja.Render(template, metadataRaw)
-		if err != nil {
-			return nil, fmt.Errorf("invalid metadata raw param %q: %w", key, err)
-		}
-		payload.Set(key, value)
-	}
-	// site specific raw payload directly set from metadata. e.g. "_site_kamept_foo".
-	for key := range metadata {
-		prefix := "_site_" + siteInstance.GetName() + "_"
-		if !strings.HasPrefix(key, prefix) {
-			continue
-		}
-		template := metadata.Get(key)
-		key = key[len(prefix):]
-		if key == "" {
-			continue
-		}
-		value, err := jinja.Render(template, metadataRaw)
-		if err != nil {
-			return nil, fmt.Errorf("invalid metadata site raw param %q: %w", key, err)
-		}
-		payload.Set(key, value)
-	}
 
 	log.Debugf("Publish torrent payload: %v", payload)
-	if keys := siteInstance.GetSiteConfig().UploadTorrentPayloadRequiredKeys; keys != "" && keys != constants.NONE {
-		for _, key := range util.SplitCsv(keys) {
-			if payload.Get(key) == "" {
-				return nil, fmt.Errorf("required payload %s is not found or is empty", key)
-			}
+	for _, key := range requiredFields {
+		if payload.Get(key) == "" {
+			return nil, fmt.Errorf("required payload %s is not found or is empty", key)
 		}
 	}
 

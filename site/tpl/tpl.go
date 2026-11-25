@@ -433,55 +433,61 @@ var (
 			UploadTorrentPayloadRequiredKeys: "type",
 			UploadTorrentAdditionalPayload: map[string]string{
 				"descr": `
-{% if _cover %}
-[img]{{_cover}}[/img]
-{% endif %}
-{% if _images %}
-{% for image in _images %}
-[img]{{image}}[/img]
-{% endfor %}
-{% endif %}
-{% if number | regex_search("\\bRJ\\d{5,12}\\b") %}
-[dlsite]{{number | regex_search("\\bRJ\\d{5,12}\\b")}}[/dlsite]
-https://www.dlsite.com/maniax/work/=/product_id/{{number | regex_search("\\bRJ\\d{5,12}\\b")}}.html
-{% endif %}
-{% if number | regex_search("\\bd_\\d{5,12}\\b") %}
-https://www.dmm.co.jp/dc/doujin/-/detail/=/cid={{number | regex_search("\\bd_\\d{5,12}\\b")}}/
-{% endif %}
-{% if _meta %}
-{{_meta}}
-{% endif %}
-{{_text}}{% if comment %}
+{{- with get . "_cover" }}
+[img]{{ . }}[/img]
+{{- end }}
+{{- with get . "_images" }}
+{{- range . }}
+[img]{{ . }}[/img]
+{{- end }}
+{{- end }}
+{{- with get . "number" }}
+	{{- with regexFind "\\bRJ\\d{5,12}\\b" . }}
+[dlsite]{{ . }}[/dlsite]
+https://www.dlsite.com/maniax/work/=/product_id/{{ . }}.html
+	{{- end }}
+	{{- with regexFind "\\bd_\\d{5,12}\\b" . }}
+https://www.dmm.co.jp/dc/doujin/-/detail/=/cid={{ . }}/
+	{{- end }}
+{{- end }}
+{{- with get . "_meta" }}
+{{ . }}
+{{- end }}
+{{- with get . "_text" }}
+{{ . }}
+{{- end }}
+{{- with get . "comment" }}
 
 ---
 
-{{comment}}{% endif %}`,
+{{ . }}
+{{- end }}`,
 				// 420: 外语音声; 415: 游戏; 435: 同人志; 411: 2D动画; 423: 3D动画.
 				// dlsite work_type genres: https://www.dlsite.com/maniax/worktype/list .
 				"type": `
-{%- if tags -%}
-	{%- if "ボイス・ASMR" in tags -%}420
-	{%- elif
-		"アクション" in tags or
-		"クイズ" in tags or
-		"アドベンチャー" in tags or
-		"ロールプレイング" in tags or
-		"テーブル" in tags or
-		"デジタルノベル" in tags or
-		"シミュレーション" in tags or
-		"タイピング" in tags or
-		"シューティング" in tags or
-		"パズル" in tags or
-		"その他ゲーム" in tags
-	-%}415
-	{%- elif "動画" in tags -%}
-		{%- if "3D作品" in tags -%}423
-		{%- else -%}411
-		{%- endif -%}
-	{%- elif "マンガ" in tags -%}435
-	{%- elif "音声" in tags or "音声あり" in tags -%}420
-	{%- endif -%}
-{%- endif -%}
+{{- with .tags }}
+	{{- if hasTag "ボイス・ASMR" . }}420
+	{{- else if or
+		(hasTag "アクション" .)
+		(hasTag "クイズ" .)
+		(hasTag "アドベンチャー" .)
+		(hasTag "ロールプレイング" .)
+		(hasTag "テーブル" .)
+		(hasTag "デジタルノベル" .)
+		(hasTag "シミュレーション" .)
+		(hasTag "タイピング" .)
+		(hasTag "シューティング" .)
+		(hasTag "パズル" .)
+		(hasTag "その他ゲーム" .)
+	}}415
+	{{- else if hasTag "動画" . }}
+		{{- if hasTag "3D作品" . }}423
+		{{- else }}411
+		{{- end }}
+	{{- else if hasTag "マンガ" . }}435
+	{{- else if or (hasTag "音声" .) (hasTag "音声あり" .) }}420
+	{{- end }}
+{{- end }}
 `,
 			},
 			Comment: "KamePT",

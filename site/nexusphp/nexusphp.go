@@ -49,26 +49,30 @@ type Site struct {
 // Note: some fields that required by np sites are NOT defined here, including but not limited to "type" field.
 // The required fields must be provided in config file UploadTorrentAdditionalPayload item.
 var defaultUploadTorrentPayload = map[string]string{
-	"name": `{% if number %}[{{number}}]{% endif %}{% if author %}[{{author}}]{% endif %}{{title}}`,
+	"name": `{{ with get . "number" }}[{{ . }}]{{ end }}{{ with get . "author" }}[{{ . }}]{{ end }}{{ .title }}`,
 	"descr": `
-{% if _cover %}
-[img]{{_cover}}[/img]
-{% endif %}
-{% if _images %}
-{% for image in _images %}
-[img]{{image}}[/img]
-{% endfor %}
-{% endif %}
-{% if _meta %}
-{{_meta}}
-{% endif %}
-{{_text}}{% if comment %}
+{{- with get . "_cover" }}
+[img]{{ . }}[/img]
+{{- end }}
+{{- with get . "_images" }}
+{{- range . }}
+[img]{{ . }}[/img]
+{{- end }}
+{{- end }}
+{{- with get . "_meta" }}
+{{ . }}
+{{- end }}
+{{- with get . "_text" }}
+{{ . }}
+{{- end }}
+{{- with get . "comment" }}
 
 ---
 
-{{comment}}{% endif %}`,
-	"small_descr": `{% if narrator %}{{narrator | join(" ")}} {% endif %}` +
-		`{% if series_name %}{{series_name}} {% endif %}{% if tags %}{{tags | join(" ")}}{% endif %}`,
+{{ . }}
+{{- end }}`,
+	"small_descr": `{{ with get . "narrator" }}{{ join " " . }} {{ end }}` +
+		`{{ with get . "series_name" }}{{ . }} {{ end }}{{ with get . "tags" }}{{ join " " . }}{{ end }}`,
 	"uplver": "yes", // anonymous
 }
 

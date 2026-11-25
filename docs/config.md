@@ -50,11 +50,15 @@ cmd = "status local -t"
 | name | string | 是 | 客户端名称，用于命令中引用 |
 | type | string | 是 | 客户端类型: `qbittorrent` 或 `transmission` |
 | url | string | 是 | Web UI 地址 |
-| username | string | 是 | Web UI 用户名 |
-| password | string | 是 | Web UI 密码 |
+| username | string | 按认证配置 | Web UI 用户名 |
+| password | string | 按认证配置 | Web UI 密码 |
 | disabled | bool | 否 | 是否禁用 |
 
 ### qBittorrent 额外配置
+
+`url` 填写 qBittorrent Web API 的最终地址，包含必要的反向代理子路径。登录接口由该地址直接响应。
+
+qBittorrent 已为 ptool 的连接地址启用免登录时，可同时省略 `username` 和 `password`。
 
 ```toml
 [[clients]]

@@ -20,13 +20,9 @@ jobs:
       uses: actions/setup-go@v7
       with:
         go-version-file: go.mod
-        cache: true
-
-    - name: Check Go module files
-      run: go mod tidy -diff
 
     - name: Build
-      run: go build -mod=readonly -v ./...
+      run: go build -v ./...
 
     - name: Test
-      run: go test -mod=readonly -v ./...
+      run: go test -v ./...

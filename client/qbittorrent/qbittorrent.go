@@ -3,22 +3,20 @@ package qbittorrent
 // qb web API: https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-4.1)
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
-	"mime/multipart"
 	"net/http"
-	"net/http/cookiejar"
-	"net/textproto"
 	"net/url"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
+	qbt "github.com/autobrr/go-qbittorrent"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/sagan/ptool/client"
@@ -32,14 +30,14 @@ type Client struct {
 	Name                      string
 	ClientConfig              *config.ClientConfigStruct
 	Config                    *config.ConfigStruct
-	HttpClient                *http.Client
-	data                      *apiSyncMaindata
-	preferences               *apiPreferences
-	Logined                   bool
+	webAPI                    *qbt.Client
+	apiBaseURL                *url.URL
+	data                      *qbt.MainData
+	preferences               map[string]any
 	datatime                  int64
 	unfinishedSize            int64
 	unfinishedDownloadingSize int64
-	contentPathTorrents       map[string][]*apiTorrentInfo
+	contentPathTorrents       map[string][]string
 }
 
 func (qbclient *Client) GetTorrentsByContentPath(contentPath string) ([]*client.Torrent, error) {
@@ -48,8 +46,9 @@ func (qbclient *Client) GetTorrentsByContentPath(contentPath string) ([]*client.
 		return nil, err
 	}
 	var torrents []*client.Torrent
-	for _, t := range qbclient.contentPathTorrents[contentPath] {
-		torrents = append(torrents, t.ToTorrent())
+	for _, hash := range qbclient.contentPathTorrents[contentPath] {
+		torrent := torrentInfo(qbclient.data.Torrents[hash])
+		torrents = append(torrents, torrent.toTorrent())
 	}
 	return torrents, nil
 }
@@ -62,90 +61,21 @@ func (qbclient *Client) SetTorrentsShareLimits(infoHashes []string, ratioLimit f
 	if len(infoHashes) == 0 {
 		return nil
 	}
-	data := url.Values{
-		"hashes": {strings.Join(infoHashes, "|")},
-	}
 	if ratioLimit == 0 {
 		ratioLimit = -2 // use global limit
+	} else if ratio := strconv.FormatFloat(ratioLimit, 'f', 2, 64); ratio == "0.00" || ratio == "-0.00" {
+		return fmt.Errorf("share ratio limit %g rounds to zero at two decimal places", ratioLimit)
 	}
-	data.Add("ratioLimit", fmt.Sprint(ratioLimit))
-	seedingTimeLimitValue := seedingTimeLimit
-	if seedingTimeLimitValue == 0 {
-		seedingTimeLimitValue = -2 //use global limit
-	} else if seedingTimeLimitValue > 0 {
-		seedingTimeLimitValue = seedingTimeLimitValue/60 + 1
+	if seedingTimeLimit == 0 {
+		seedingTimeLimit = -2 // use global limit
+	} else if seedingTimeLimit > 0 {
+		seedingTimeLimit = seedingTimeLimit/60 + 1
 	}
-	data.Add("seedingTimeLimit", fmt.Sprint(seedingTimeLimitValue))
-	// The maximum amount of time (minutes) the torrent is allowed to seed while being inactive.
-	// -2 means the global limit should be used, -1 means no limit.
-	data.Add("inactiveSeedingTimeLimit", fmt.Sprint(-2))
-	// qBittorrent 5.3+ requires the action and matching mode as well.
-	data.Add("shareLimitAction", "Default")
-	data.Add("shareLimitsMode", "Default")
-	return qbclient.apiPost("api/v2/torrents/setShareLimits", data)
-}
-
-func (qbclient *Client) apiPost(apiUrl string, data url.Values) error {
-	resp, err := qbclient.HttpClient.PostForm(qbclient.ClientConfig.Url+apiUrl, data)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	if string(body) == "Fails." {
-		return fmt.Errorf("apiPost error: Fails")
-	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("apiPost error: status=%d", resp.StatusCode)
-	}
-	return nil
-}
-
-func (qbclient *Client) apiRequest(apiPath string, v any) error {
-	resp, err := qbclient.HttpClient.Get(qbclient.ClientConfig.Url + apiPath)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("apiRequest %s response %d status", apiPath, resp.StatusCode)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	if v != nil {
-		return json.Unmarshal(body, &v)
-	} else {
-		return nil
-	}
-}
-
-func (qbclient *Client) login() error {
-	if qbclient.Logined || qbclient.ClientConfig.QbittorrentNoLogin {
-		return nil
-	}
-	username := qbclient.ClientConfig.Username
-	password := qbclient.ClientConfig.Password
-	// use qb default
-	if username == "" {
-		username = "admin"
-	}
-	if username == "admin" && password == "" {
-		password = "adminadmin"
-	}
-	data := url.Values{
-		"username": {username},
-		"password": {password},
-	}
-	err := qbclient.apiPost("api/v2/auth/login", data)
-	if err == nil {
-		qbclient.Logined = true
-	}
-	return err
+	return qbclient.webAPI.SetTorrentShareLimit(infoHashes, qbt.ShareLimitOptions{
+		RatioLimit:               ratioLimit,
+		SeedingTimeLimit:         seedingTimeLimit,
+		InactiveSeedingTimeLimit: -2,
+	})
 }
 
 func (qbclient *Client) GetName() string {
@@ -157,173 +87,104 @@ func (qbclient *Client) GetClientConfig() *config.ClientConfigStruct {
 }
 
 func (qbclient *Client) AddTorrent(torrentContent []byte, option *client.TorrentOption, meta map[string]int64) error {
-	err := qbclient.login()
-	if err != nil {
-		return fmt.Errorf("login error: %w", err)
+	options := map[string]string{
+		"root_folder":   "true",
+		"contentLayout": "Original",
 	}
-	name := client.GenerateNameWithMeta(option.Name, meta)
-	body := new(bytes.Buffer)
-	mp := multipart.NewWriter(body)
-	if util.IsTorrentUrl(string(torrentContent)) {
-		mp.WriteField("urls", string(torrentContent))
-	} else {
-		// see https://stackoverflow.com/questions/21130566/how-to-set-content-type-for-a-form-filed-using-multipart-in-go
-		// torrentPartWriter, _ := mp.CreateFormField("torrents")
-		h := make(textproto.MIMEHeader)
-		h.Set("Content-Disposition", `form-data; name="torrents"; filename="file.torrent"`)
-		h.Set("Content-Type", "application/x-bittorrent")
-		torrentPartWriter, err := mp.CreatePart(h)
-		if err != nil {
-			return err
-		}
-		torrentPartWriter.Write(torrentContent)
-	}
-	// qb 5.0+ API 似乎有变化（Github 文档页面尚未更新）：
-	// 1. 将 paused 更名为 stopped 。
-	// 2. 增加了 stopCondition 字段 (Stop condition): None (default) | MetadataReceived | FilesChecked 。
-	// 3. 将 root_folder (true | false | <unset>) 替换为 contentLayout 字段: Original | Subfolder | NoSubfolder 。
-	// 为向下兼容，同时设置 4.X 和 5.X 的 API 字段。
-	mp.WriteField("rename", name)
-	mp.WriteField("root_folder", "true")
-	mp.WriteField("contentLayout", "Original")
+	name := ""
 	if option != nil {
+		name = option.Name
 		if option.Category != constants.NONE {
-			mp.WriteField("category", option.Category)
+			options["category"] = option.Category
 		}
-		mp.WriteField("tags", strings.Join(option.Tags, ",")) // qb 4.3.2+ new
-		mp.WriteField("paused", fmt.Sprint(option.Pause))
-		mp.WriteField("stopped", fmt.Sprint(option.Pause))
+		options["tags"] = strings.Join(option.Tags, ",")
+		options["paused"] = strconv.FormatBool(option.Pause)
+		options["stopped"] = options["paused"]
 		if option.SkipChecking {
 			if option.Pause {
-				// @todo: 这里处理方式可能有问题。
-				mp.WriteField("stopCondition", "FilesChecked")
+				options["stopCondition"] = "FilesChecked"
 			}
-			mp.WriteField("skip_checking", "true")
-			mp.WriteField("seedMode", "true") // qBittorrent 5.3+ renamed skip_checking.
+			options["skip_checking"] = "true"
+			options["seedMode"] = "true" // qBittorrent 5.3+ renamed skip_checking.
 		}
-		mp.WriteField("upLimit", fmt.Sprint(option.UploadSpeedLimit))
-		mp.WriteField("dlLimit", fmt.Sprint(option.DownloadSpeedLimit))
+		options["upLimit"] = strconv.FormatInt(option.UploadSpeedLimit, 10)
+		options["dlLimit"] = strconv.FormatInt(option.DownloadSpeedLimit, 10)
 		if option.SavePath != "" {
-			mp.WriteField("savepath", option.SavePath)
-			mp.WriteField("autoTMM", "false")
+			options["savepath"] = option.SavePath
+			options["autoTMM"] = "false"
 		}
 		if option.SequentialDownload {
-			mp.WriteField("sequentialDownload", "true")
+			options["sequentialDownload"] = "true"
 		}
 		if option.RatioLimit != 0 {
-			mp.WriteField("ratioLimit", fmt.Sprint(option.RatioLimit))
+			options["ratioLimit"] = fmt.Sprint(option.RatioLimit)
 		}
 		if option.SeedingTimeLimit != 0 {
 			value := option.SeedingTimeLimit
 			if value > 0 {
 				value = value/60 + 1
 			}
-			mp.WriteField("seedingTimeLimit", fmt.Sprint(value))
+			options["seedingTimeLimit"] = strconv.FormatInt(value, 10)
 		}
 	}
-	mp.Close()
-	resp, err := qbclient.HttpClient.Post(qbclient.ClientConfig.Url+"api/v2/torrents/add",
-		mp.FormDataContentType(), body)
+	options["rename"] = client.GenerateNameWithMeta(name, meta)
+	var result *qbt.TorrentAddResponse
+	var err error
+	torrentURL := string(torrentContent)
+	if util.IsTorrentUrl(torrentURL) {
+		result, err = qbclient.webAPI.AddTorrentFromUrl(torrentURL, options)
+	} else {
+		result, err = qbclient.webAPI.AddTorrentFromMemory(torrentContent, options)
+	}
 	if err != nil {
 		return fmt.Errorf("add torrent error: %w", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("add torrent error: status=%d", resp.StatusCode)
+	if result.FailureCount > 0 {
+		return qbt.ErrTorrentAddFailed
 	}
-	return err
+	return nil
 }
 
 func (qbclient *Client) PauseTorrents(infoHashes []string) error {
 	if len(infoHashes) == 0 {
 		return nil
 	}
-	err := qbclient.login()
-	if err != nil {
-		return fmt.Errorf("login error: %w", err)
-	}
-	data := url.Values{
-		"hashes": {strings.Join(infoHashes, "|")},
-	}
-	if qbclient.ClientConfig.QbittorrentV4 {
-		return qbclient.apiPost("api/v2/torrents/pause", data)
-	}
-	return qbclient.apiPost("api/v2/torrents/stop", data)
+	return qbclient.webAPI.Pause(infoHashes)
 }
 
 func (qbclient *Client) ResumeTorrents(infoHashes []string) error {
 	if len(infoHashes) == 0 {
 		return nil
 	}
-	err := qbclient.login()
-	if err != nil {
-		return fmt.Errorf("login error: %w", err)
-	}
-	data := url.Values{
-		"hashes": {strings.Join(infoHashes, "|")},
-	}
-	if qbclient.ClientConfig.QbittorrentV4 {
-		return qbclient.apiPost("api/v2/torrents/resume", data)
-	}
-	return qbclient.apiPost("api/v2/torrents/start", data)
+	return qbclient.webAPI.Resume(infoHashes)
 }
 
 func (qbclient *Client) RecheckTorrents(infoHashes []string) error {
 	if len(infoHashes) == 0 {
 		return nil
 	}
-	err := qbclient.login()
-	if err != nil {
-		return fmt.Errorf("login error: %w", err)
-	}
-	data := url.Values{
-		"hashes": {strings.Join(infoHashes, "|")},
-	}
-	return qbclient.apiPost("api/v2/torrents/recheck", data)
+	return qbclient.webAPI.Recheck(infoHashes)
 }
 
 func (qbclient *Client) ReannounceTorrents(infoHashes []string) error {
 	if len(infoHashes) == 0 {
 		return nil
 	}
-	err := qbclient.login()
-	if err != nil {
-		return fmt.Errorf("login error: %w", err)
-	}
-	data := url.Values{
-		"hashes": {strings.Join(infoHashes, "|")},
-	}
-	return qbclient.apiPost("api/v2/torrents/reannounce", data)
+	return qbclient.webAPI.ReAnnounceTorrents(infoHashes)
 }
 
 func (qbclient *Client) AddTagsToTorrents(infoHashes []string, tags []string) error {
 	if len(infoHashes) == 0 || len(tags) == 0 {
 		return nil
 	}
-	err := qbclient.login()
-	if err != nil {
-		return fmt.Errorf("login error: %w", err)
-	}
-	data := url.Values{
-		"hashes": {strings.Join(infoHashes, "|")},
-		"tags":   {strings.Join(tags, ",")},
-	}
-	return qbclient.apiPost("api/v2/torrents/addTags", data)
+	return qbclient.webAPI.AddTags(infoHashes, strings.Join(tags, ","))
 }
 
 func (qbclient *Client) RemoveTagsFromTorrents(infoHashes []string, tags []string) error {
 	if len(infoHashes) == 0 || len(tags) == 0 {
 		return nil
 	}
-	err := qbclient.login()
-	if err != nil {
-		return fmt.Errorf("login error: %w", err)
-	}
-	data := url.Values{
-		"hashes": {strings.Join(infoHashes, "|")},
-		"tags":   {strings.Join(tags, ",")},
-	}
-	return qbclient.apiPost("api/v2/torrents/removeTags", data)
+	return qbclient.webAPI.RemoveTags(infoHashes, strings.Join(tags, ","))
 }
 
 func (qbclient *Client) SetTorrentsSavePath(infoHashes []string, savePath string) error {
@@ -334,15 +195,7 @@ func (qbclient *Client) SetTorrentsSavePath(infoHashes []string, savePath string
 	if savePath == "" {
 		return fmt.Errorf("savePath is empty")
 	}
-	err := qbclient.login()
-	if err != nil {
-		return fmt.Errorf("login error: %w", err)
-	}
-	data := url.Values{
-		"hashes":   {strings.Join(infoHashes, "|")},
-		"location": {savePath},
-	}
-	return qbclient.apiPost("api/v2/torrents/setLocation", data)
+	return qbclient.webAPI.SetLocation(infoHashes, savePath)
 }
 
 func (qbclient *Client) PauseAllTorrents() error {
@@ -374,53 +227,26 @@ func (qbclient *Client) SetAllTorrentsSavePath(savePath string) error {
 }
 
 func (qbclient *Client) GetTags() ([]string, error) {
-	err := qbclient.login()
-	if err != nil {
-		return nil, fmt.Errorf("login error: %w", err)
-	}
-	var tags []string
-	err = qbclient.apiRequest("api/v2/torrents/tags", &tags)
-	return tags, err
+	return qbclient.webAPI.GetTags()
 }
 
 func (qbclient *Client) CreateTags(tags ...string) error {
-	err := qbclient.login()
-	if err != nil {
-		return fmt.Errorf("login error: %w", err)
-	}
-	data := url.Values{
-		"tags": {strings.Join(tags, ",")},
-	}
-	return qbclient.apiPost("api/v2/torrents/createTags", data)
+	return qbclient.webAPI.CreateTags(tags)
 }
 
 func (qbclient *Client) DeleteTags(tags ...string) error {
-	err := qbclient.login()
-	if err != nil {
-		return fmt.Errorf("login error: %w", err)
-	}
-	data := url.Values{
-		"tags": {strings.Join(tags, ",")},
-	}
-	return qbclient.apiPost("api/v2/torrents/deleteTags", data)
+	return qbclient.webAPI.DeleteTags(tags)
 }
 
 func (qbclient *Client) MakeCategory(category string, savePath string) error {
-	err := qbclient.login()
-	if err != nil {
-		return fmt.Errorf("login error: %w", err)
+	path := savePath
+	if path == constants.NONE {
+		path = ""
 	}
-	data := url.Values{
-		"category": {category},
-	}
-	if savePath != constants.NONE {
-		data.Add("savePath", savePath)
-	}
-	err = qbclient.apiPost("api/v2/torrents/createCategory", data)
-	// 简单粗暴
-	if err != nil && strings.Contains(err.Error(), "status=409") {
-		if data.Has("savePath") {
-			return qbclient.apiPost("api/v2/torrents/editCategory", data)
+	err := qbclient.webAPI.CreateCategory(category, path)
+	if errors.Is(err, qbt.ErrInvalidCategoryName) {
+		if savePath != constants.NONE {
+			return qbclient.webAPI.EditCategory(category, path)
 		}
 		return nil
 	}
@@ -428,29 +254,17 @@ func (qbclient *Client) MakeCategory(category string, savePath string) error {
 }
 
 func (qbclient *Client) DeleteCategories(categories []string) error {
-	err := qbclient.login()
-	if err != nil {
-		return fmt.Errorf("login error: %w", err)
-	}
-	data := url.Values{
-		"categories": {strings.Join(categories, "\n")},
-	}
-	return qbclient.apiPost("api/v2/torrents/removeCategories", data)
+	return qbclient.webAPI.RemoveCategories(categories)
 }
 
 func (qbclient *Client) GetCategories() ([]*client.TorrentCategory, error) {
-	err := qbclient.login()
-	if err != nil {
-		return nil, fmt.Errorf("login error: %w", err)
-	}
-	var categories map[string]*client.TorrentCategory
-	err = qbclient.apiRequest("api/v2/torrents/categories", &categories)
+	categories, err := qbclient.webAPI.GetCategories()
 	if err != nil {
 		return nil, err
 	}
-	cats := []*client.TorrentCategory{}
+	cats := make([]*client.TorrentCategory, 0, len(categories))
 	for _, category := range categories {
-		cats = append(cats, category)
+		cats = append(cats, &client.TorrentCategory{Name: category.Name, SavePath: category.SavePath})
 	}
 	return cats, nil
 }
@@ -459,44 +273,30 @@ func (qbclient *Client) SetTorrentsCatetory(infoHashes []string, category string
 	if len(infoHashes) == 0 {
 		return nil
 	}
-	err := qbclient.login()
-	if err != nil {
-		return fmt.Errorf("login error: %w", err)
-	}
 	if category == constants.NONE {
 		category = ""
 	}
-	data := url.Values{
-		"hashes":   {strings.Join(infoHashes, "|")},
-		"category": {category},
-	}
-	return qbclient.apiPost("api/v2/torrents/setCategory", data)
+	return qbclient.webAPI.SetCategory(infoHashes, category)
 }
 
 func (qbclient *Client) SetAllTorrentsCatetory(category string) error {
 	return qbclient.SetTorrentsCatetory([]string{"all"}, category)
 }
 
-func (qbclient *Client) DeleteTorrents(infoHashes []string, deleteFiles bool) (err error) {
+func (qbclient *Client) DeleteTorrents(infoHashes []string, deleteFiles bool) error {
 	if len(infoHashes) == 0 {
 		return nil
 	}
-	err = qbclient.login()
-	if err != nil {
-		return fmt.Errorf("login error: %w", err)
+	if err := qbclient.webAPI.DeleteTorrents(infoHashes, deleteFiles); err != nil {
+		return err
 	}
-	data := url.Values{
-		"hashes":      {strings.Join(infoHashes, "|")},
-		"deleteFiles": {fmt.Sprint(deleteFiles)},
-	}
-	err = qbclient.apiPost("api/v2/torrents/delete", data)
-	if err == nil && qbclient.Cached() {
+	if qbclient.Cached() {
 		for _, infoHash := range infoHashes {
 			delete(qbclient.data.Torrents, infoHash)
 		}
 		qbclient.buildDerivative()
 	}
-	return
+	return nil
 }
 
 func (qbclient *Client) ModifyTorrent(infoHash string,
@@ -509,12 +309,12 @@ func (qbclient *Client) ModifyTorrent(infoHash string,
 		return err
 	}
 
-	// qbtorrent := &apiTorrentProperties{}
-	// err = qbclient.apiRequest("api/v2/torrents/properties?hash="+torrent.InfoHash, qbtorrent)
-	qbtorrent, ok := qbclient.data.Torrents[infoHash]
+	torrent, ok := qbclient.data.Torrents[infoHash]
 	if !ok {
 		return fmt.Errorf("torrent not exists")
 	}
+	qbtorrent := torrentInfo(torrent)
+	infoHashes := []string{infoHash}
 
 	if option.Name != "" || len(meta) > 0 {
 		name := option.Name
@@ -523,12 +323,7 @@ func (qbclient *Client) ModifyTorrent(infoHash string,
 		}
 		name = client.GenerateNameWithMeta(name, meta)
 		if name != qbtorrent.Name {
-			data := url.Values{
-				"hash": {infoHash},
-				"name": {name},
-			}
-			err := qbclient.apiPost("api/v2/torrents/rename", data)
-			if err != nil {
+			if err := qbclient.webAPI.SetTorrentName(infoHash, name); err != nil {
 				return err
 			}
 		}
@@ -543,12 +338,7 @@ func (qbclient *Client) ModifyTorrent(infoHash string,
 			category = ""
 		}
 		if category != qbtorrent.Category {
-			data := url.Values{
-				"hashes":   {infoHash},
-				"category": {category},
-			}
-			err := qbclient.apiPost("api/v2/torrents/setCategory", data)
-			if err != nil {
+			if err := qbclient.webAPI.SetCategory(infoHashes, category); err != nil {
 				return err
 			}
 		}
@@ -569,63 +359,42 @@ func (qbclient *Client) ModifyTorrent(infoHash string,
 			}
 		}
 		if len(removeTags) > 0 {
-			data := url.Values{
-				"hashes": {infoHash},
-				"tags":   {strings.Join(addTags, ",")},
-			}
-			err := qbclient.apiPost("api/v2/torrents/removeTags", data)
-			if err != nil {
+			if err := qbclient.RemoveTagsFromTorrents(infoHashes, removeTags); err != nil {
 				return err
 			}
 		}
 		if len(addTags) > 0 {
-			data := url.Values{
-				"hashes": {infoHash},
-				"tags":   {strings.Join(addTags, ",")},
-			}
-			err := qbclient.apiPost("api/v2/torrents/addTags", data)
-			if err != nil {
+			if err := qbclient.AddTagsToTorrents(infoHashes, addTags); err != nil {
 				return err
 			}
 		}
 	}
 
-	if option.DownloadSpeedLimit != 0 && option.DownloadSpeedLimit != qbtorrent.Dl_limit {
-		data := url.Values{
-			"hashes": {infoHash},
-			"limit":  {fmt.Sprint(option.DownloadSpeedLimit)},
-		}
-		err := qbclient.apiPost("api/v2/torrents/setDownloadLimit", data)
-		if err != nil {
+	if option.DownloadSpeedLimit != 0 && option.DownloadSpeedLimit != qbtorrent.DlLimit {
+		if err := qbclient.webAPI.SetTorrentDownloadLimit(infoHashes, option.DownloadSpeedLimit); err != nil {
 			return err
 		}
 	}
 
-	if option.UploadSpeedLimit != 0 && option.UploadSpeedLimit != qbtorrent.Up_limit {
-		data := url.Values{
-			"hashes": {infoHash},
-			"limit":  {fmt.Sprint(option.UploadSpeedLimit)},
-		}
-		err := qbclient.apiPost("api/v2/torrents/setUploadLimit", data)
-		if err != nil {
+	if option.UploadSpeedLimit != 0 && option.UploadSpeedLimit != qbtorrent.UpLimit {
+		if err := qbclient.webAPI.SetTorrentUploadLimit(infoHashes, option.UploadSpeedLimit); err != nil {
 			return err
 		}
 	}
 
 	if option.RatioLimit != 0 || option.SeedingTimeLimit != 0 {
-		err := qbclient.SetTorrentsShareLimits([]string{infoHash}, option.RatioLimit, option.SeedingTimeLimit)
-		if err != nil {
+		if err := qbclient.SetTorrentsShareLimits(infoHashes, option.RatioLimit, option.SeedingTimeLimit); err != nil {
 			return err
 		}
 	}
 
 	if option.Pause {
-		if qbtorrent.CanPause() {
-			qbclient.PauseTorrents([]string{qbtorrent.Hash})
+		if !qbtorrent.canResume() {
+			return qbclient.PauseTorrents(infoHashes)
 		}
 	} else if option.Resume {
-		if qbtorrent.CanResume() {
-			qbclient.ResumeTorrents([]string{qbtorrent.Hash})
+		if qbtorrent.canResume() {
+			return qbclient.ResumeTorrents(infoHashes)
 		}
 	}
 
@@ -649,14 +418,11 @@ func (qbclient *Client) sync() error {
 	if qbclient.datatime > 0 {
 		return nil
 	}
-	err := qbclient.login()
-	if err != nil {
-		return fmt.Errorf("login error: %w", err)
-	}
-	err = qbclient.apiRequest("api/v2/sync/maindata", &qbclient.data)
+	data, err := qbclient.webAPI.SyncMainDataCtx(context.Background(), 0)
 	if err != nil {
 		return err
 	}
+	qbclient.data = data
 	qbclient.datatime = util.Now()
 	qbclient.buildDerivative()
 	return nil
@@ -665,17 +431,15 @@ func (qbclient *Client) sync() error {
 func (qbclient *Client) buildDerivative() {
 	unfinishedSize := int64(0)
 	unfinishedDownloadingSize := int64(0)
-	contentPathTorrents := map[string][]*apiTorrentInfo{}
-	// make hash available in torrent itself as well as map key
+	contentPathTorrents := map[string][]string{}
 	for hash, torrent := range qbclient.data.Torrents {
-		torrent.Hash = hash
-		qbclient.data.Torrents[hash] = torrent
 		usize := torrent.Size - torrent.Completed
 		unfinishedSize += usize
 		if torrent.State != "pausedDL" && torrent.State != "stoppedDL" {
 			unfinishedDownloadingSize += usize
 		}
-		contentPathTorrents[torrent.ContentPath()] = append(contentPathTorrents[torrent.ContentPath()], torrent)
+		path := torrentInfo(torrent).contentPath()
+		contentPathTorrents[path] = append(contentPathTorrents[path], hash)
 	}
 	qbclient.unfinishedSize = unfinishedSize
 	qbclient.unfinishedDownloadingSize = unfinishedDownloadingSize
@@ -691,7 +455,8 @@ func (qbclient *Client) TorrentRootPathExists(rootFolder string) bool {
 		return false
 	}
 	for _, torrent := range qbclient.data.Torrents {
-		if strings.HasSuffix(torrent.ContentPath(), torrent.Sep()+rootFolder) {
+		info := torrentInfo(torrent)
+		if strings.HasSuffix(info.contentPath(), info.sep()+rootFolder) {
 			return true
 		}
 	}
@@ -704,11 +469,12 @@ func (qbclient *Client) GetStatus() (*client.Status, error) {
 		return nil, err
 	}
 	var status client.Status
-	status.DownloadSpeed = qbclient.data.Server_state.Dl_info_speed
-	status.UploadSpeed = qbclient.data.Server_state.Up_info_speed
-	status.DownloadSpeedLimit = qbclient.data.Server_state.Dl_rate_limit
-	status.UploadSpeedLimit = qbclient.data.Server_state.Up_rate_limit
-	status.FreeSpaceOnDisk = qbclient.data.Server_state.Free_space_on_disk
+	server := qbclient.data.ServerState
+	status.DownloadSpeed = server.DlInfoSpeed
+	status.UploadSpeed = server.UpInfoSpeed
+	status.DownloadSpeedLimit = server.DlRateLimit
+	status.UploadSpeedLimit = server.UpRateLimit
+	status.FreeSpaceOnDisk = server.FreeSpaceOnDisk
 	status.UnfinishedSize = qbclient.unfinishedSize
 	status.UnfinishedDownloadingSize = qbclient.unfinishedDownloadingSize
 	// @workaround
@@ -739,56 +505,66 @@ func (qbclient *Client) GetStatus() (*client.Status, error) {
 	return &status, nil
 }
 
-func (qbclient *Client) setPreferences(preferences map[string]any) error {
-	err := qbclient.login()
-	if err != nil {
-		return fmt.Errorf("login error: %w", err)
-	}
-	data, err := json.Marshal(preferences)
-	if err != nil {
-		return err
-	}
-	// setPreferences qb API expects a "raw" form data (without %XX escapes)
-	dataStr := "json=" + string(data)
-	_, err = qbclient.HttpClient.Post(qbclient.ClientConfig.Url+"api/v2/app/setPreferences",
-		"application/x-www-form-urlencoded", strings.NewReader(dataStr))
-	return err
-}
-
-func (qbclient *Client) getPreferences() (*apiPreferences, error) {
-	err := qbclient.login()
-	if err != nil {
-		return nil, fmt.Errorf("login error: %w", err)
-	}
+func (qbclient *Client) getPreferences() (map[string]any, error) {
 	if qbclient.preferences != nil {
 		return qbclient.preferences, nil
 	}
-	err = qbclient.apiRequest("api/v2/app/preferences", &qbclient.preferences)
-	return qbclient.preferences, err
+	endpoint := qbclient.apiBaseURL.JoinPath("app/preferences")
+	httpClient := qbclient.webAPI.GetHTTPClient()
+	hasSession := len(httpClient.Jar.Cookies(endpoint)) > 0
+	if !hasSession {
+		if err := qbclient.webAPI.Login(); err != nil {
+			return nil, err
+		}
+	}
+	resp, err := httpClient.Get(endpoint.String())
+	if err != nil {
+		return nil, err
+	}
+	config := qbclient.ClientConfig
+	if resp.StatusCode == http.StatusForbidden && hasSession && (config.Username != "" || config.Password != "") {
+		resp.Body.Close()
+		if err := qbclient.webAPI.Login(); err != nil {
+			return nil, err
+		}
+		resp, err = httpClient.Get(endpoint.String())
+		if err != nil {
+			return nil, err
+		}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("get preferences: status=%d", resp.StatusCode)
+	}
+	decoder := json.NewDecoder(resp.Body)
+	decoder.UseNumber()
+	var preferences map[string]any
+	if err := decoder.Decode(&preferences); err != nil {
+		return nil, err
+	}
+	qbclient.preferences = preferences
+	return preferences, nil
 }
 
 func (qbclient *Client) GetConfig(variable string) (string, error) {
-	err := qbclient.login()
-	if err != nil {
-		return "", fmt.Errorf("login error: %w", err)
-	}
 	if strings.HasPrefix(variable, "qb_") && len(variable) > 3 {
 		preferences, err := qbclient.getPreferences()
 		if err != nil {
 			return "", err
 		}
-		value := reflect.Indirect(reflect.ValueOf(preferences)).FieldByName(util.Capitalize(variable[3:])).Interface()
-		return fmt.Sprint(value), nil
+		key := variable[3:]
+		if value, ok := preferences[key]; ok {
+			return fmt.Sprint(value), nil
+		}
+		return "", fmt.Errorf("unknown qBittorrent preference: %s", key)
 	}
 
 	switch variable {
 	case "global_download_speed_limit":
-		v := 0
-		err = qbclient.apiRequest("api/v2/transfer/downloadLimit", &v)
+		v, err := qbclient.webAPI.GetGlobalDownloadLimit()
 		return fmt.Sprint(v), err
 	case "global_upload_speed_limit":
-		v := 0
-		err = qbclient.apiRequest("api/v2/transfer/uploadLimit", &v)
+		v, err := qbclient.webAPI.GetGlobalUploadLimit()
 		return fmt.Sprint(v), err
 	case "free_disk_space":
 		status, err := qbclient.GetStatus()
@@ -809,47 +585,31 @@ func (qbclient *Client) GetConfig(variable string) (string, error) {
 		}
 		return fmt.Sprint(status.UploadSpeed), nil
 	case "save_path":
-		preferences, err := qbclient.getPreferences()
-		if err != nil {
-			return "", err
-		}
-		return preferences.Save_path, nil
+		return qbclient.webAPI.GetDefaultSavePath()
 	default:
 		return "", nil
 	}
 }
 
 func (qbclient *Client) SetConfig(variable string, value string) error {
-	err := qbclient.login()
-	if err != nil {
-		return fmt.Errorf("login error: %w", err)
-	}
 	if strings.HasPrefix(variable, "qb_") && len(variable) > 3 {
-		data := map[string]any{}
-		data[variable[3:]], _ = util.String2Any(value)
-		return qbclient.setPreferences(data)
+		preference, _ := util.String2Any(value)
+		return qbclient.webAPI.SetPreferences(map[string]any{variable[3:]: preference})
 	}
 	switch variable {
-	case "global_download_speed_limit":
-		{
-			data := url.Values{
-				"limit": {value},
-			}
-			err = qbclient.apiPost("api/v2/transfer/setDownloadLimit", data)
-			return err
+	case "global_download_speed_limit", "global_upload_speed_limit":
+		limit, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid speed limit: %w", err)
 		}
-	case "global_upload_speed_limit":
-		{
-			data := url.Values{
-				"limit": {value},
-			}
-			err = qbclient.apiPost("api/v2/transfer/setUploadLimit", data)
-			return err
+		if variable == "global_download_speed_limit" {
+			return qbclient.webAPI.SetGlobalDownloadLimit(limit)
 		}
+		return qbclient.webAPI.SetGlobalUploadLimit(limit)
 	case "free_disk_space", "global_download_speed", "global_upload_speed":
 		return fmt.Errorf("%s is read-only", variable)
 	case "save_path":
-		return qbclient.setPreferences(map[string]any{"save_path": value})
+		return qbclient.webAPI.SetPreferences(map[string]any{"save_path": value})
 	default:
 		return nil
 	}
@@ -896,13 +656,7 @@ func (qbclient *Client) ExportTorrentFile(infoHash string) ([]byte, error) {
 		}
 		log.Debugf("Failed to export qb torrent from file system: %v. Fallback to QB Web API", err)
 	}
-	apiUrl := qbclient.ClientConfig.Url + "api/v2/torrents/export?hash=" + infoHash
-	res, _, err := util.FetchUrl(apiUrl, qbclient.HttpClient, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-	return io.ReadAll(res.Body)
+	return qbclient.webAPI.ExportTorrent(infoHash)
 }
 
 func (qbclient *Client) GetTorrent(infoHash string) (*client.Torrent, error) {
@@ -910,11 +664,11 @@ func (qbclient *Client) GetTorrent(infoHash string) (*client.Torrent, error) {
 	if err != nil {
 		return nil, err
 	}
-	qbtorrent := qbclient.data.Torrents[infoHash]
-	if qbtorrent == nil {
+	torrent, ok := qbclient.data.Torrents[infoHash]
+	if !ok {
 		return nil, nil
 	}
-	return qbtorrent.ToTorrent(), nil
+	return torrentInfo(torrent).toTorrent(), nil
 }
 
 func (qbclient *Client) GetTorrents(stateFilter string, category string, showAll bool) ([]*client.Torrent, error) {
@@ -934,10 +688,10 @@ func (qbclient *Client) GetTorrents(stateFilter string, category string, showAll
 				continue
 			}
 		}
-		if !showAll && qbtorrent.Dlspeed < 1024 && qbtorrent.Upspeed < 1024 {
+		if !showAll && qbtorrent.DlSpeed < 1024 && qbtorrent.UpSpeed < 1024 {
 			continue
 		}
-		torrent := qbtorrent.ToTorrent()
+		torrent := torrentInfo(qbtorrent).toTorrent()
 		if !torrent.MatchStateFilter(stateFilter) {
 			continue
 		}
@@ -947,25 +701,19 @@ func (qbclient *Client) GetTorrents(stateFilter string, category string, showAll
 }
 
 func (qbclient *Client) GetTorrentContents(infoHash string) ([]*client.TorrentContentFile, error) {
-	err := qbclient.login()
-	if err != nil {
-		return nil, fmt.Errorf("login error: %w", err)
-	}
-	apiUrl := qbclient.ClientConfig.Url + "api/v2/torrents/files?hash=" + infoHash
-	var qbTorrentContents []apiTorrentContent
-	err = util.FetchJson(apiUrl, &qbTorrentContents, qbclient.HttpClient, nil)
+	qbTorrentContents, err := qbclient.webAPI.GetFilesInformation(infoHash)
 	if err != nil {
 		return nil, err
 	}
-	torrentContents := []*client.TorrentContentFile{}
-	for _, qbTorrentContent := range qbTorrentContents {
+	torrentContents := make([]*client.TorrentContentFile, 0, len(*qbTorrentContents))
+	for _, qbTorrentContent := range *qbTorrentContents {
 		torrentContents = append(torrentContents, &client.TorrentContentFile{
-			Index:    qbTorrentContent.Index,
+			Index:    int64(qbTorrentContent.Index),
 			Path:     strings.ReplaceAll(qbTorrentContent.Name, `\`, "/"),
 			Size:     qbTorrentContent.Size,
 			Ignored:  qbTorrentContent.Priority == 0,
-			Complete: qbTorrentContent.Is_seed,
-			Progress: qbTorrentContent.Progress,
+			Complete: qbTorrentContent.IsSeed,
+			Progress: float64(qbTorrentContent.Progress),
 		})
 	}
 	sort.Slice(torrentContents, func(i, j int) bool {
@@ -975,39 +723,36 @@ func (qbclient *Client) GetTorrentContents(infoHash string) ([]*client.TorrentCo
 }
 
 func (qbclient *Client) GetTorrentTrackers(infoHash string) (client.TorrentTrackers, error) {
-	err := qbclient.login()
-	if err != nil {
-		return nil, fmt.Errorf("login error: %w", err)
-	}
-	apiUrl := qbclient.ClientConfig.Url + "api/v2/torrents/trackers?hash=" + infoHash
-	var qbTorrentTrackers []apiTorrentTracker
-	err = util.FetchJson(apiUrl, &qbTorrentTrackers, qbclient.HttpClient, nil)
+	qbTorrentTrackers, err := qbclient.webAPI.GetTorrentTrackers(infoHash)
 	if err != nil {
 		return nil, err
 	}
-	qbTorrentTrackers = util.Filter(qbTorrentTrackers, func(tracker apiTorrentTracker) bool {
+	if qbTorrentTrackers == nil {
+		return nil, fmt.Errorf("torrent %s: %w", infoHash, qbt.ErrTorrentNotFound)
+	}
+	qbTorrentTrackers = util.Filter(qbTorrentTrackers, func(tracker qbt.TorrentTracker) bool {
 		// exclude qb  "** [DHT] **", "** [PeX] **", "** [LSD] **" trackers
 		return !strings.HasPrefix(tracker.Url, "**")
 	})
-	trackers := util.Map(qbTorrentTrackers, func(qbtracker apiTorrentTracker) client.TorrentTracker {
+	trackers := util.Map(qbTorrentTrackers, func(qbtracker qbt.TorrentTracker) client.TorrentTracker {
 		status := ""
 		switch qbtracker.Status {
-		case 0:
+		case qbt.TrackerStatusDisabled:
 			status = "disabled"
-		case 1:
+		case qbt.TrackerStatusNotContacted:
 			status = "notcontacted"
-		case 2:
+		case qbt.TrackerStatusOK:
 			status = "working"
-		case 3:
+		case qbt.TrackerStatusUpdating:
 			status = "updating"
-		case 4:
+		case qbt.TrackerStatusNotWorking:
 			status = "error"
 		default:
 			status = "unknown"
 		}
 		return client.TorrentTracker{
 			Url:    qbtracker.Url,
-			Msg:    qbtracker.Msg,
+			Msg:    qbtracker.Message,
 			Status: status,
 		}
 	})
@@ -1051,20 +796,12 @@ func (qbclient *Client) EditTorrentTracker(infoHash string, oldTracker string,
 			err := qbclient.EditTorrentTracker(torrent.InfoHash, oldTrackerUrl, newTrackerUrl, false)
 			if err != nil {
 				log.Errorf("Failed to replace torrent %s tracker domain: %v", torrent.InfoHash, err)
-			} else {
-				log.Debugf("Replaced torrent %s tracker %s => %s", torrent.InfoHash, oldTrackerUrl, newTrackerUrl)
 			}
 			return err
 		}
 		return fmt.Errorf("torrent %s old tracker does NOT exist", torrent.InfoHash)
 	}
-	data := url.Values{
-		"hash":    {infoHash},
-		"origUrl": {oldTracker},
-		"url":     {oldTracker}, // qBittorrent 5.2+ renamed origUrl.
-		"newUrl":  {newTracker},
-	}
-	return qbclient.apiPost("api/v2/torrents/editTracker", data)
+	return qbclient.webAPI.EditTracker(infoHash, oldTracker, newTracker)
 }
 
 // trackers - new trackers full URLs; oldTracker - existing tracker host or URL
@@ -1091,11 +828,8 @@ func (qbclient *Client) AddTorrentTrackers(infoHash string, trackers []string,
 	if len(trackers) == 0 {
 		return nil
 	}
-	data := url.Values{
-		"hash": {infoHash},
-		"urls": {strings.Join(trackers, "\n")},
-	}
-	if err := qbclient.apiPost("api/v2/torrents/addTrackers", data); err != nil {
+	urls := strings.Join(trackers, "\n")
+	if err := qbclient.webAPI.AddTrackers(infoHash, urls); err != nil {
 		return err
 	}
 	if removeExisting && len(existingTrackers) > 0 {
@@ -1105,53 +839,53 @@ func (qbclient *Client) AddTorrentTrackers(infoHash string, trackers []string,
 }
 
 func (qbclient *Client) RemoveTorrentTrackers(infoHash string, trackers []string) error {
-	data := url.Values{
-		"hash": {infoHash},
-		"urls": {strings.Join(trackers, "|")},
-	}
-	return qbclient.apiPost("api/v2/torrents/removeTrackers", data)
+	urls := strings.Join(trackers, "|")
+	return qbclient.webAPI.RemoveTrackers(infoHash, urls)
 }
 
 func (qbclient *Client) SetFilePriority(infoHash string, fileIndexes []int64, priority int64) error {
 	if len(fileIndexes) == 0 {
 		return fmt.Errorf("must provide at least fileIndex")
 	}
-	id := ""
-	for i, index := range fileIndexes {
-		if i > 0 {
-			id += "|"
-		}
-		id += fmt.Sprint(index)
-	}
-	data := url.Values{
-		"hash":     {infoHash},
-		"id":       {id},
-		"priority": {fmt.Sprint(priority)},
-	}
-	return qbclient.apiPost("api/v2/torrents/filePrio", data)
+	ids := util.Map(fileIndexes, func(index int64) string { return strconv.FormatInt(index, 10) })
+	return qbclient.webAPI.SetFilePriority(infoHash, strings.Join(ids, "|"), int(priority))
 }
 
 func (qbclient *Client) Close() {
 	qbclient.PurgeCache()
-	if qbclient.Logined && !qbclient.ClientConfig.QbittorrentNoLogout {
-		qbclient.Logined = false
-		qbclient.apiPost("api/v2/auth/logout", nil)
+	if qbclient.ClientConfig.QbittorrentNoLogout {
+		return
+	}
+	logoutURL := qbclient.apiBaseURL.JoinPath("auth/logout")
+	httpClient := qbclient.webAPI.GetHTTPClient()
+	if len(httpClient.Jar.Cookies(logoutURL)) == 0 {
+		return
+	}
+	resp, err := httpClient.PostForm(logoutURL.String(), nil)
+	if err == nil {
+		resp.Body.Close()
 	}
 }
 
 func NewClient(name string, clientConfig *config.ClientConfigStruct, config *config.ConfigStruct) (
 	client.Client, error) {
-	jar, err := cookiejar.New(nil)
+	baseURL, err := url.Parse(clientConfig.Url)
 	if err != nil {
 		return nil, err
 	}
+	apiBaseURL := baseURL.JoinPath("api/v2")
+	apiBaseURL.RawQuery = ""
+	webAPI := qbt.NewClient(qbt.Config{
+		Host:     clientConfig.Url,
+		Username: clientConfig.Username,
+		Password: clientConfig.Password,
+	})
 	client := &Client{
 		Name:         name,
 		ClientConfig: clientConfig,
 		Config:       config,
-		HttpClient: &http.Client{
-			Jar: jar,
-		},
+		webAPI:       webAPI,
+		apiBaseURL:   apiBaseURL,
 	}
 	return client, nil
 }

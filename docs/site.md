@@ -115,21 +115,24 @@ source: 来源
 说明:
 - 使用 YAML Front Matter 格式
 - `number` 字段用于检测重复
-- 模板渲染字段: `name`（标题）、`desc`（描述）
+- 发布模板中的 `.title` 是作品标题，`._text` 是正文。
 
 ### 配置发布参数
 
-对于需要额外字段的站点，在 ptool.toml 中配置:
+在对应的 `[[sites]]` 条目下配置 `uploadTorrentAdditionalPayload`，为站点补充或覆盖表单字段。字段值使用 Go `text/template` 语法，支持 Sprig 的 `get`、`join`、`has` 和 `regexFind`，以及用于匹配标签的 `hasTag`。默认将 `tags` 和 `narrator` 作为列表传入。 [Go 模板语法](https://pkg.go.dev/text/template)
 
 ```toml
-[uploadTorrentAdditionalPayload]
+[sites.uploadTorrentAdditionalPayload]
 type = """
-{% if "分类1" in tags %}100
-{% elif "分类2" in tags %}200
-{% else %}999
-{% endif %}
+{{- $tags := get . "tags" -}}
+{{- if hasTag "分类1" $tags -}}100
+{{- else if hasTag "分类2" $tags -}}200
+{{- else -}}999
+{{- end -}}
 """
 ```
+
+`uploadTorrentPayload` 和 `metadata.nfo` 中的 `_raw_<字段>`、`_site_<站点>_<字段>` 也使用同一套模板语法。必填表单字段引用缺失的元数据时会报错。可以用 `get` 读取可选值，例如 `{{ with get . "author" }}[{{ . }}]{{ end }}`。
 
 ### 图床配置
 

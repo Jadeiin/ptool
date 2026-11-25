@@ -1,7 +1,7 @@
 // Package client provides interfaces and implementations for interacting with BitTorrent clients.
 //
 // It supports multiple BitTorrent client types:
-//   - qBittorrent v4.1+ (recommended)
+//   - qBittorrent v4.1.7+ (recommended)
 //   - Transmission (<= v3.0)
 //
 // # Core Types

@@ -121,9 +121,7 @@ type ClientConfigStruct struct {
 	BrushMinDiskSpaceValue            int64
 	BrushSlowUploadSpeedTierValue     int64
 	BrushDefaultUploadSpeedLimitValue int64 ``
-	QbittorrentNoLogin                bool  `yaml:"qbittorrentNoLogin"`  // if set, will NOT send login request
-	QbittorrentNoLogout               bool  `yaml:"qbittorrentNoLogout"` // if set, will NOT send logout request
-	QbittorrentV4                     bool  `yaml:"qbittorrentV4"`       // is qbittorrent v4 (legacy) version.
+	QbittorrentNoLogout               bool  `yaml:"qbittorrentNoLogout"`
 }
 
 type SiteConfigStruct struct {
@@ -203,21 +201,12 @@ type SiteConfigStruct struct {
 	// Default: "url". May contain dots, e.g. "data.url" will resolve to "res.data.url",
 	// where res is the response json object .
 	ImageUploadResponseUrlField string `yaml:"mageUploadResponseUrlField"`
-	// Payload that will be sent to site when uploading torrent.
-	// Key => value. Values are using jinja2 syntax. E.g. "{{title}}".
-	// Jinja context variables:
-	//   title: Resource title. (this variable is guaranteed to exist, all others are optional).
-	//   _text: full description plain text.
-	//   _cover: uploaded cover image url.
-	// Rendered results will be TrimSpaced.
-	// If UploadTorrentPayload is nil, schema dependent default values will be used,
-	// and values of UploadTorrentAdditionalPayload will be assigned to previous values.
-	// Jinja rendering uses gonja, which, unfortunately, is not fully compatible with python version.
-	// For example, {{% if str.startswith("xxx") %}} will NOT work as startswith is a method of python built in string,
-	// which is not available in Go. All these methods must be replaced by filters instead.
+	// Upload form values are Go text templates, such as "{{ .title }}".
+	// Templates receive publication metadata, including title, _text, _cover, and _images.
+	// UploadTorrentAdditionalPayload overrides fields from UploadTorrentPayload or the site defaults.
 	UploadTorrentPayload           map[string]string `yaml:"uploadTorrentPayload"`
 	UploadTorrentAdditionalPayload map[string]string `yaml:"uploadTorrentAdditionalPayload"`
-	// csv, eg: "type". It will check existence of these keys in metadata prior publishing.
+	// Comma-separated form fields that must render a non-empty value.
 	UploadTorrentPayloadRequiredKeys string `yaml:"uploadTorrentPayloadRequiredKeys"`
 	TorrentDownloadUrl               string `yaml:"torrentDownloadUrl"` // use {id} placeholders in url
 	TorrentDownloadUrlPrefix         string `yaml:"torrentDownloadUrlPrefix"`
@@ -395,7 +384,7 @@ func Set() error {
 		newsites = append(newsites, newsite)
 	}
 	viper.Set("sites", newsites)
-	viper.SetConfigPermissions(0600)
+	viper.SetConfigPermissions(constants.PERM)
 	return viper.WriteConfig()
 }
 

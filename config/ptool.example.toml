@@ -15,15 +15,15 @@ iyuuToken = '' # iyuu token。用于使用 Iyuu (https://github.com/ledccn/IYUUA
 
 
 # 配置 BitTorrent 客户端
-# 完整支持 qBittorrent  v4.1+ (推荐使用 qb v4.4+)
+# 支持 qBittorrent v4.1.7+ (推荐使用 qb v4.4+)
 [[clients]]
 name = 'local'
 type = 'qbittorrent'
 url = 'http://localhost:8085/'
+# qBittorrent 已为 ptool 的连接地址启用免登录时，可同时省略 username 和 password。
 username = 'admin'
 password = 'adminadmin'
 #localTorrentsPath = '' # 仅适用于本地的BT客户端。客户端的种子文件夹(QB 的 BT_backup 或 TR 的 torrents 文件夹)路径。对于 TR 必须配置本选项才能使用“导出种子”等命令；对于 QB 本配置可选(配置后会提高相关命令性能)
-#qbittorrentNoLogin = false # 如果启用，不会发送登录请求。这将提高命令响应速度。需要在 QB Web UI 设置里开启跳过验证
 #qbittorrentNoLogout = false # 如果启用，不会发送退出登录请求。这将提高命令响应速度，但会导致 QB web session 占用的内存不能及时释放
 #brushMinDiskSpace = '5GiB' # 刷流：保留最小剩余磁盘空间
 #brushSlowUploadSpeedTier = '100KiB' # 刷流：上传速度(/s)持续低于此值的种子将可能被删除
