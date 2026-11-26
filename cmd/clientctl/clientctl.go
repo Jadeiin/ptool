@@ -51,7 +51,7 @@ var (
 			"For full list see https://github.com/qbittorrent/qBittorrent/wiki/" +
 			"WebUI-API-(qBittorrent-4.1)#get-application-preferences . E.g. qb_start_paused_enabled"},
 		{"tr_*", 0, false, false, "The transmission specific preferences. " +
-			"For full list see https://github.com/transmission/transmission/blob/3.00/extras/rpc-spec.txt#L482 . " +
+			"For full list see https://github.com/transmission/transmission/blob/4.0.6/docs/rpc-spec.md#41-session-arguments . " +
 			"Convert argument name to snake_case. E.g. tr_config_dir"},
 	}
 	showRaw        = false
@@ -105,7 +105,7 @@ func clientctl(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, variable := range args {
-		s := strings.Split(variable, "=")
+		s := strings.SplitN(variable, "=", 2)
 		name := s[0]
 		value := ""
 		var err error

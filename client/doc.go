@@ -2,7 +2,7 @@
 //
 // It supports multiple BitTorrent client types:
 //   - qBittorrent v4.1.7+ (recommended)
-//   - Transmission (<= v3.0)
+//   - Transmission v4.0+
 //
 // # Core Types
 //

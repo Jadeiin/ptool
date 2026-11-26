@@ -35,5 +35,5 @@ ptool --help
 
 - **操作系统**: Windows / Linux / macOS
 - **架构**: x64 / arm64
-- **BT 客户端**: qBittorrent v4.1.7+ / Transmission (<= v3.0)
+- **BT 客户端**: qBittorrent v4.1.7+ / Transmission v4.0+
 - **PT 站点**: 绝大部分 NexusPHP 架构站点、M-Team(馒头)等

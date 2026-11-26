@@ -17,7 +17,7 @@ ptool 是一个自用的 PT (Private Tracker) 网站和 BitTorrent 客户端辅�
 | 客户端 | 版本要求 | 备注 |
 |--------|----------|------|
 | qBittorrent | v4.1.7+ | 推荐使用，需要启用 Web UI |
-| Transmission | <= v3.0 | 未充分测试 |
+| Transmission | v4.0+ | 未充分测试 |
 
 ## 支持的 PT 站点
 

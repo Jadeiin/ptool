@@ -7,7 +7,7 @@
 - 使用 Go 开发的纯 CLI 程序。单文件可执行程序，没有外部依赖。支持 Windows / Linux、x64 / arm64 等多种环境、架构。
 - 无状态(stateless)：程序自身不保存任何状态、不在后台持续运行。刷流等任务需要使用 cron job 等方式定时运行本程序。
 - 使用简单。只需 5 分钟时间，配置 BitTorrent 客户端地址、PT 网站地址和 cookie 即可开始全自动刷流。
-- 目前支持的 BitTorrent 客户端： qBittorrent v4.1.7+ / Transmission (<= v3.0)。
+- 目前支持的 BitTorrent 客户端： qBittorrent v4.1.7+ / Transmission v4.0+。
   - 推荐使用 qBittorrent。Transmission 客户端未充分测试。
 - 目前支持的 PT 站点：绝大部分使用 nexusphp 的网站；M-Team(馒头)。
   - 测试过支持的站点：U2、冬樱、红叶、聆音、铂金家、若干不可说的站点等。

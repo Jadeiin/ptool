@@ -7,28 +7,35 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
+	"net/url"
+	"slices"
+	"strings"
 
-	transmissionrpc "github.com/hekmon/transmissionrpc/v2"
+	transmissionrpc "github.com/hekmon/transmissionrpc/v3"
+	"github.com/sagan/ptool/util"
 )
 
 const sessionIDHeader = "X-Transmission-Session-Id"
 
-var trackerHTTPClient = &http.Client{
-	Timeout: 30 * time.Second,
-	CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	},
+func (trclient *Client) getTorrentWithTrackers(infoHash string) (*transmissionrpc.Torrent, error) {
+	torrents, err := trclient.client.TorrentGetHashes(context.TODO(), []string{"id", "trackers"}, []string{infoHash})
+	if err != nil {
+		return nil, err
+	}
+	if len(torrents) == 0 {
+		return nil, fmt.Errorf("torrent %s not found", infoHash)
+	}
+	return &torrents[0], nil
 }
 
-// Transmission 3 expects integer and string pairs in trackerReplace. The v2
-// module exposes this field as []string, so send this one operation directly.
-func (trclient *Client) replaceTracker(ctx context.Context, torrentID, trackerID int64, trackerURL string) error {
+// The SDK only exposes whole-list replacement. Apply incremental changes on the
+// daemon's current list so other tracker updates and fallback tiers are preserved.
+func (trclient *Client) mutateTrackers(infoHash, field string, value any) error {
 	body, err := json.Marshal(map[string]any{
 		"method": "torrent-set",
 		"arguments": map[string]any{
-			"ids":            []int64{torrentID},
-			"trackerReplace": []any{trackerID, trackerURL},
+			"ids": []string{infoHash},
+			field: value,
 		},
 	})
 	if err != nil {
@@ -36,15 +43,13 @@ func (trclient *Client) replaceTracker(ctx context.Context, torrentID, trackerID
 	}
 	sessionID, _ := trclient.trackerSessionID.Load().(string)
 	for range 2 {
-		request, err := http.NewRequestWithContext(ctx, http.MethodPost, trclient.rpcURL, bytes.NewReader(body))
+		request, err := http.NewRequest(http.MethodPost, trclient.rpcURL, bytes.NewReader(body))
 		if err != nil {
 			return err
 		}
 		request.Header.Set("Content-Type", "application/json")
-		request.Header.Set("User-Agent", "github.com/hekmon/transmissionrpc")
 		request.Header.Set(sessionIDHeader, sessionID)
-		request.SetBasicAuth(trclient.ClientConfig.Username, trclient.ClientConfig.Password)
-		response, err := trackerHTTPClient.Do(request)
+		response, err := trclient.rpcHTTP.Do(request)
 		if err != nil {
 			return err
 		}
@@ -74,4 +79,93 @@ func (trclient *Client) replaceTracker(ctx context.Context, torrentID, trackerID
 		return nil
 	}
 	return fmt.Errorf("Transmission rejected the session ID twice")
+}
+
+func (trclient *Client) EditTorrentTracker(infoHash, oldTracker, newTracker string, replaceHost bool) error {
+	torrent, err := trclient.getTorrentWithTrackers(infoHash)
+	if err != nil {
+		return err
+	}
+	for _, tracker := range torrent.Trackers {
+		address := tracker.Announce
+		replacement := newTracker
+		if replaceHost {
+			trackerURL, err := url.Parse(address)
+			if err != nil || trackerURL.Host != oldTracker {
+				continue
+			}
+			if !util.IsUrl(newTracker) {
+				trackerURL.Host = newTracker
+				replacement = trackerURL.String()
+			}
+		} else if address != oldTracker {
+			continue
+		}
+		if replacement == address {
+			return nil
+		}
+		return trclient.mutateTrackers(infoHash, "trackerReplace", []any{tracker.ID, replacement})
+	}
+	return fmt.Errorf("torrent %s old tracker %s does NOT exist", infoHash, oldTracker)
+}
+
+func (trclient *Client) AddTorrentTrackers(infoHash string, trackers []string, oldTracker string, removeExisting bool) error {
+	if len(trackers) == 0 {
+		return nil
+	}
+	torrent := trclient.torrents[infoHash]
+	if torrent == nil || oldTracker != "" || removeExisting {
+		var err error
+		torrent, err = trclient.getTorrentWithTrackers(infoHash)
+		if err != nil {
+			return err
+		}
+	}
+	if oldTracker != "" && !slices.ContainsFunc(torrent.Trackers, func(tracker transmissionrpc.Tracker) bool {
+		return util.MatchUrlWithHostOrUrl(tracker.Announce, oldTracker)
+	}) {
+		return nil
+	}
+	if !removeExisting {
+		trackers = util.Filter(trackers, func(address string) bool {
+			return !slices.ContainsFunc(torrent.Trackers, func(tracker transmissionrpc.Tracker) bool {
+				return tracker.Announce == address
+			})
+		})
+		if len(trackers) == 0 {
+			return nil
+		}
+		return trclient.mutateTrackers(infoHash, "trackerAdd", trackers)
+	}
+	var replacement []string
+	for _, address := range trackers {
+		if strings.TrimSpace(address) == "" || strings.ContainsAny(address, "\r\n") {
+			return fmt.Errorf("invalid tracker address %q", address)
+		}
+		if len(replacement) > 0 {
+			replacement = append(replacement, "")
+		}
+		replacement = append(replacement, address)
+	}
+	return trclient.client.TorrentSet(context.TODO(), transmissionrpc.TorrentSetPayload{
+		IDs:         []int64{*torrent.ID},
+		TrackerList: replacement,
+	})
+}
+
+func (trclient *Client) RemoveTorrentTrackers(infoHash string, trackers []string) error {
+	torrent, err := trclient.getTorrentWithTrackers(infoHash)
+	if err != nil {
+		return err
+	}
+	var ids []int64
+	for _, tracker := range torrent.Trackers {
+		if slices.Contains(trackers, tracker.Announce) {
+			ids = append(ids, tracker.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return trclient.mutateTrackers(infoHash, "trackerRemove", ids)
 }

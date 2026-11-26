@@ -33,7 +33,7 @@ password = 'adminadmin'
 #brushDefaultUploadSpeedLimit = '10MiB' # 刷流：默认最大上传速度限制(/s)
 
 # 对 Transmission 客户端支持不完整且尚未充分测试。不建议用于刷流
-# 支持 Transmission 2.80 ~ 3.00 (Transmission v4 还有问题)
+# 支持 Transmission 4.0+
 [[clients]]
 name = 'tr'
 type = 'transmission'

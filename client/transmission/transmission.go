@@ -1,13 +1,14 @@
 package transmission
 
 // use https://github.com/hekmon/transmissionrpc
-// protocol: https://github.com/transmission/transmission/blob/3.00/extras/rpc-spec.txt
+// protocol: https://github.com/transmission/transmission/blob/4.0.6/docs/rpc-spec.md
 
 import (
 	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -15,9 +16,10 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/ettle/strcase"
-	transmissionrpc "github.com/hekmon/transmissionrpc/v2"
+	transmissionrpc "github.com/hekmon/transmissionrpc/v3"
 	"github.com/sagan/ptool/client"
 	"github.com/sagan/ptool/config"
 	"github.com/sagan/ptool/constants"
@@ -31,6 +33,7 @@ type Client struct {
 	Config                    *config.ConfigStruct
 	client                    *transmissionrpc.Client
 	rpcURL                    string
+	rpcHTTP                   *http.Client
 	trackerSessionID          atomic.Value // string
 	datatime                  int64
 	datafull                  bool
@@ -44,6 +47,14 @@ type Client struct {
 	contentPathTorrents       map[string][]*transmissionrpc.Torrent
 	lastTorrent               *transmissionrpc.Torrent // a **really** simple cache with capacity of only one
 }
+
+var torrentFields = []string{
+	"activityDate", "addedDate", "doneDate", "downloadDir", "downloadedEver", "downloadLimit", "downloadLimited",
+	"hashString", "id", "labels", "name", "peersGettingFromUs", "peersSendingToUs", "percentDone", "rateDownload",
+	"rateUpload", "sizeWhenDone", "status", "trackers", "totalSize", "uploadedEver", "uploadLimit", "uploadLimited",
+}
+
+var torrentDetailFields = slices.Concat(torrentFields, []string{"files", "fileStats", "trackerStats"})
 
 func (trclient *Client) GetTorrentsByContentPath(contentPath string) ([]*client.Torrent, error) {
 	if err := trclient.Sync(false); err != nil {
@@ -72,15 +83,13 @@ func (trclient *Client) SetTorrentsShareLimits(infoHashes []string, ratioLimit f
 
 // get a torrent info from rpc. return error if torrent not found
 func (trclient *Client) getTorrent(infoHash string, full bool) (*transmissionrpc.Torrent, error) {
-	// If TrackerStats is present, it's a full info.
-	if trclient.torrents[infoHash] != nil && (!full || trclient.torrents[infoHash].TrackerStats != nil) {
-		return trclient.torrents[infoHash], nil
+	if torrent := trclient.torrents[infoHash]; torrent != nil && (!full || trclient.datafull) {
+		return torrent, nil
 	}
 	if trclient.lastTorrent != nil && *trclient.lastTorrent.HashString == infoHash {
 		return trclient.lastTorrent, nil
 	}
-	transmissionbt := trclient.client
-	torrents, err := transmissionbt.TorrentGetAllForHashes(context.TODO(), []string{infoHash})
+	torrents, err := trclient.client.TorrentGetHashes(context.TODO(), torrentDetailFields, []string{infoHash})
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +97,7 @@ func (trclient *Client) getTorrent(infoHash string, full bool) (*transmissionrpc
 		return nil, fmt.Errorf("torrent not found")
 	}
 	trclient.lastTorrent = &torrents[0]
-	return &torrents[0], err
+	return trclient.lastTorrent, nil
 }
 
 func (trclient *Client) getIds(infoHashes []string) []int64 {
@@ -119,23 +128,16 @@ func (trclient *Client) Cached() bool {
 	return trclient.datatime > 0
 }
 
-func (trclient *Client) Sync(full bool) (err error) {
+func (trclient *Client) Sync(full bool) error {
 	if trclient.datatime > 0 && (!full || trclient.datafull) {
 		return nil
 	}
-	transmissionbt := trclient.client
 	now := util.Now()
-	var torrents []transmissionrpc.Torrent
+	fields := torrentFields
 	if full {
-		torrents, err = transmissionbt.TorrentGetAll(context.TODO())
-	} else {
-		torrents, err = transmissionbt.TorrentGet(context.TODO(), []string{
-			"activityDate", "addedDate", "doneDate", "downloadDir", "downloadedEver", "downloadLimit", "downloadLimited",
-			"hashString", "id", "labels", "name", "peersGettingFromUs", "peersSendingToUs", "percentDone", "rateDownload",
-			"rateUpload", "sizeWhenDone", "status", "trackers", "totalSize", "uploadedEver", "uploadLimit", "uploadLimited",
-		}, nil)
+		fields = torrentDetailFields
 	}
-
+	torrents, err := trclient.client.TorrentGet(context.TODO(), fields, nil)
 	if err != nil {
 		return err
 	}
@@ -182,7 +184,7 @@ func (trclient *Client) syncMeta() error {
 	if err != nil {
 		return err
 	}
-	freeSpace, err := transmissionbt.FreeSpace(context.TODO(), *sessionArgs.DownloadDir)
+	freeSpace, _, err := transmissionbt.FreeSpace(context.TODO(), *sessionArgs.DownloadDir)
 	if err != nil {
 		return err
 	}
@@ -410,8 +412,12 @@ func (trclient *Client) DeleteTorrents(infoHashes []string, deleteFiles bool) (e
 	if err := trclient.Sync(false); err != nil {
 		return err
 	}
+	ids := trclient.getIds(infoHashes)
+	if len(ids) == 0 {
+		return nil
+	}
 	err = transmissionbt.TorrentRemove(context.TODO(), transmissionrpc.TorrentRemovePayload{
-		IDs:             trclient.getIds(infoHashes),
+		IDs:             ids,
 		DeleteLocalData: deleteFiles,
 	})
 	if err == nil && trclient.Cached() {
@@ -679,19 +685,26 @@ func (trclient *Client) SetConfig(variable string, value string) error {
 		trvariable := strcase.ToKebab(variable[3:])
 		key := strcase.ToPascal(trvariable)
 		args := transmissionrpc.SessionArguments{}
-		argValue, kind := util.String2Any(value)
-		// it's ugly for now
-		if kind == reflect.Int64 {
-			value := argValue.(int64)
-			util.SetStructFieldValue(&args, key, &value)
-		} else if kind == reflect.Bool {
-			value := argValue.(bool)
-			util.SetStructFieldValue(&args, key, &value)
-		} else if kind == reflect.String {
-			value := argValue.(string)
-			util.SetStructFieldValue(&args, key, &value)
-		} else {
-			return fmt.Errorf("invalid value type: %v", kind)
+		switch key {
+		case "Encryption":
+			encryption := transmissionrpc.Encryption(value)
+			args.Encryption = &encryption
+		case "DefaultTrackers":
+			args.DefaultTrackers = strings.Split(value, "\n")
+		default:
+			switch argValue, kind := util.String2Any(value); kind {
+			case reflect.Int64:
+				value := argValue.(int64)
+				util.SetStructFieldValue(&args, key, &value)
+			case reflect.Bool:
+				value := argValue.(bool)
+				util.SetStructFieldValue(&args, key, &value)
+			case reflect.String:
+				value := argValue.(string)
+				util.SetStructFieldValue(&args, key, &value)
+			default:
+				return fmt.Errorf("invalid value type: %v", kind)
+			}
 		}
 		return transmissionbt.SessionArgumentsSet(context.TODO(), args)
 	}
@@ -743,6 +756,9 @@ func (trclient *Client) GetConfig(variable string) (string, error) {
 	if strings.HasPrefix(variable, "tr_") && len(variable) > 3 {
 		trvariable := strcase.ToKebab(variable[3:])
 		key := strcase.ToPascal(trvariable)
+		if key == "DefaultTrackers" {
+			return strings.Join(trclient.sessionArgs.DefaultTrackers, "\n"), nil
+		}
 		defaultValue := ""
 		value := util.ResolvePointerValue(util.GetStructFieldValue(trclient.sessionArgs, key, &defaultValue))
 		return fmt.Sprint(value), nil
@@ -808,102 +824,6 @@ func (trclient *Client) GetTorrentTrackers(infoHash string) (client.TorrentTrack
 	return trackers, nil
 }
 
-func (trclient *Client) EditTorrentTracker(infoHash string, oldTracker string, newTracker string, replaceHost bool) error {
-	trtorrent, err := trclient.getTorrent(infoHash, false)
-	if err != nil {
-		return err
-	}
-	oldTrackerId := int64(-1)
-	oldTrackerUrl := ""
-	newTrackerUrl := newTracker
-	directNewUrlMode := util.IsUrl(newTracker)
-	for _, tracker := range trtorrent.Trackers {
-		if replaceHost {
-			oldTrackerUrlObj, err := url.Parse(tracker.Announce)
-			if err != nil {
-				continue
-			}
-			if oldTrackerUrlObj.Host == oldTracker {
-				oldTrackerId = tracker.ID
-				oldTrackerUrl = tracker.Announce
-				if directNewUrlMode {
-					newTrackerUrl = newTracker
-					break
-				}
-				oldTrackerUrlObj.Host = newTracker
-				newTrackerUrl = oldTrackerUrlObj.String()
-				break
-			}
-		} else if tracker.Announce == oldTracker {
-			oldTrackerId = tracker.ID
-			break
-		}
-	}
-	if oldTrackerId == -1 {
-		return fmt.Errorf("torrent %s old tracker %s does NOT exist", *trtorrent.HashString, oldTracker)
-	}
-	if oldTrackerUrl == newTrackerUrl {
-		return nil
-	}
-	if err := trclient.replaceTracker(context.TODO(), *trtorrent.ID, oldTrackerId, newTrackerUrl); err != nil {
-		return fmt.Errorf("'torrent-set' rpc method failed: %w", err)
-	}
-	return nil
-}
-
-func (trclient *Client) AddTorrentTrackers(infoHash string, trackers []string,
-	oldTracker string, removeExisting bool) error {
-	trtorrent, err := trclient.getTorrent(infoHash, false)
-	if err != nil {
-		return err
-	}
-	if oldTracker != "" {
-		if !slices.ContainsFunc(trtorrent.Trackers, func(trtracker *transmissionrpc.Tracker) bool {
-			return util.MatchUrlWithHostOrUrl(trtracker.Announce, oldTracker)
-		}) {
-			return nil
-		}
-	}
-	if !removeExisting {
-		trackers = util.Filter(trackers, func(tracker string) bool {
-			return !slices.ContainsFunc(trtorrent.Trackers, func(trtracker *transmissionrpc.Tracker) bool {
-				return trtracker.Announce == tracker
-			})
-		})
-	}
-	if len(trackers) > 0 {
-		payload := transmissionrpc.TorrentSetPayload{
-			IDs:        []int64{*trtorrent.ID},
-			TrackerAdd: trackers,
-		}
-		if removeExisting {
-			payload.TrackerRemove = util.Map(trtorrent.Trackers, func(t *transmissionrpc.Tracker) int64 { return t.ID })
-		}
-		return trclient.client.TorrentSet(context.TODO(), payload)
-	}
-	return nil
-}
-
-func (trclient *Client) RemoveTorrentTrackers(infoHash string, trackers []string) error {
-	trtorrent, err := trclient.getTorrent(infoHash, false)
-	if err != nil {
-		return err
-	}
-	trackerIds := []int64{}
-	for _, tracker := range trtorrent.Trackers {
-		if slices.Contains(trackers, tracker.Announce) {
-			trackerIds = append(trackerIds, tracker.ID)
-		}
-	}
-	if len(trackerIds) > 0 {
-		return trclient.client.TorrentSet(context.TODO(), transmissionrpc.TorrentSetPayload{
-			IDs:           []int64{*trtorrent.ID},
-			TrackerRemove: trackerIds,
-		})
-	}
-	return nil
-}
-
 func (trclient *Client) SetFilePriority(infoHash string, fileIndexes []int64, priority int64) error {
 	return ErrNotImplemented
 }
@@ -914,40 +834,22 @@ func (trclient *Client) Close() {
 
 func NewClient(name string, clientConfig *config.ClientConfigStruct, config *config.ConfigStruct) (
 	client.Client, error) {
-	urlObj, err := url.Parse(clientConfig.Url)
+	endpoint, err := url.Parse(clientConfig.Url)
 	if err != nil {
 		return nil, err
 	}
-	schema := urlObj.Scheme
-	hostname := urlObj.Hostname()
-	portStr := urlObj.Port()
-	port := int64(80)
-	isHttps := schema == "https"
-	rpcPath := urlObj.EscapedPath()
-	if rpcPath == "" || rpcPath == "/" {
-		rpcPath = "/transmission/rpc"
-	}
-	if portStr != "" {
-		port = util.ParseInt(portStr)
-	} else {
-		if isHttps {
-			port = 443
-		} else {
-			port = 80
-		}
-	}
-	if (schema != "http" && schema != "https") || hostname == "" || port < 1 || port > 65535 {
+	if (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Hostname() == "" {
 		return nil, fmt.Errorf("invalid tr url: %s", clientConfig.Url)
 	}
-	if strings.Contains(hostname, ":") {
-		hostname = "[" + strings.ReplaceAll(hostname, "%", "%25") + "]"
+	if endpoint.Path == "" || endpoint.Path == "/" {
+		endpoint.Path = "/transmission/rpc"
+		endpoint.RawPath = ""
 	}
-	client, err := transmissionrpc.New(hostname, clientConfig.Username, clientConfig.Password,
-		&transmissionrpc.AdvancedConfig{
-			HTTPS:  isHttps,
-			Port:   uint16(port),
-			RPCURI: rpcPath,
-		})
+	if clientConfig.Username != "" || clientConfig.Password != "" {
+		endpoint.User = url.UserPassword(clientConfig.Username, clientConfig.Password)
+	}
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	rpcClient, err := transmissionrpc.New(endpoint, &transmissionrpc.Config{CustomClient: httpClient})
 	if err != nil {
 		return nil, err
 	}
@@ -955,8 +857,9 @@ func NewClient(name string, clientConfig *config.ClientConfigStruct, config *con
 		Name:         name,
 		ClientConfig: clientConfig,
 		Config:       config,
-		client:       client,
-		rpcURL:       fmt.Sprintf("%s://%s:%d%s", schema, hostname, port, rpcPath),
+		client:       rpcClient,
+		rpcURL:       endpoint.String(),
+		rpcHTTP:      httpClient,
 	}, nil
 }
 

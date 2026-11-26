@@ -16,7 +16,7 @@ require (
 	github.com/gofrs/flock v0.13.2
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/googollee/go-socket.io v1.8.0-rc.1.0.20230904084053-b044011d047b
-	github.com/hekmon/transmissionrpc/v2 v2.0.1
+	github.com/hekmon/transmissionrpc/v3 v3.1.0
 	github.com/influxdata/go-prompt v0.2.8
 	github.com/jpillora/go-tld v1.2.1
 	github.com/mattn/go-runewidth v0.0.31
